@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: gtp_db
+    environment:
+      POSTGRES_USER: gtp
+      POSTGRES_PASSWORD: gtp_pass
+      POSTGRES_DB: gtp
+    ports:
+      - "5432:5432"
+    volumes:
+      - gtp_db_data:/var/lib/postgresql/data
+
+volumes:
+  gtp_db_data:
