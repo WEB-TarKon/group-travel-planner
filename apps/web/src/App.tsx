@@ -1,4 +1,3 @@
-import "leaflet/dist/leaflet.css";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import TripsPage from "./pages/TripsPage";
 import TripPage from "./pages/TripPage";
