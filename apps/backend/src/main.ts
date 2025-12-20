@@ -1,14 +1,18 @@
-import "dotenv/config";
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  await app.listen(process.env.PORT ?? 3000);
 
   app.enableCors({
-    origin: ["http://localhost:5173"],
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (origin.startsWith("http://localhost:")) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"), false);
+    },
     credentials: true,
   });
+
+  await app.listen(3000);
 }
 bootstrap();

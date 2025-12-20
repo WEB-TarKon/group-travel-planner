@@ -16,7 +16,18 @@ export class TripsService {
         });
     }
 
-    createTrip(data: { title: string; isPublic?: boolean; organizerId: string }) {
+    async createTrip(data: { title: string; isPublic?: boolean; organizerId: string }) {
+        // MVP без авторизації: гарантуємо, що organizer існує
+        await this.prisma.user.upsert({
+            where: { id: data.organizerId },
+            update: {},
+            create: {
+                id: data.organizerId,
+                email: `${data.organizerId}@demo.local`,
+                name: "Demo Organizer",
+            },
+        });
+
         return this.prisma.trip.create({
             data: {
                 title: data.title,
@@ -25,6 +36,7 @@ export class TripsService {
             },
         });
     }
+
 
     upsertWaypoints(tripId: string, waypoints: Array<{ order: number; lat: number; lng: number; title?: string }>) {
         return this.prisma.$transaction([
