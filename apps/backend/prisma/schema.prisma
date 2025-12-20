@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  tripsOrganized Trip[]      @relation("OrganizerTrips")
+  tripMembers    TripMember[]
+  waypoints      Waypoint[]  @relation("UserWaypoints")
+}
+
+model Trip {
+  id          String      @id @default(cuid())
+  title       String
+  isPublic    Boolean     @default(false)
+  status      TripStatus  @default(DRAFT)
+  createdAt   DateTime    @default(now())
+
+  organizerId String
+  organizer   User        @relation("OrganizerTrips", fields: [organizerId], references: [id])
+
+  members     TripMember[]
+  waypoints   Waypoint[]
+}
+
+model TripMember {
+  id        String   @id @default(cuid())
+  role      MemberRole @default(PARTICIPANT)
+  status    MemberStatus @default(PENDING)
+  createdAt DateTime @default(now())
+
+  tripId    String
+  userId    String
+
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([tripId, userId])
+}
+
+model Waypoint {
+  id        String   @id @default(cuid())
+  order     Int
+  title     String?
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id])
+
+  createdById String?
+  createdBy   User?    @relation("UserWaypoints", fields: [createdById], references: [id])
+
+  @@index([tripId, order])
+}
+
+enum TripStatus {
+  DRAFT
+  PLANNED
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
+enum MemberRole {
+  ORGANIZER
+  PARTICIPANT
+}
+
+enum MemberStatus {
+  PENDING
+  ACTIVE
+  REMOVED
+}
