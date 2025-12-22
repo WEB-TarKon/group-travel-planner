@@ -8,42 +8,44 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
   passwordHash String
-  createdAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
-  tripsOrganized Trip[]      @relation("OrganizerTrips")
+  tripsOrganized Trip[]        @relation("OrganizerTrips")
   tripMembers    TripMember[]
-  waypoints      Waypoint[]  @relation("UserWaypoints")
+  waypoints      Waypoint[]    @relation("UserWaypoints")
+  joinRequests   JoinRequest[]
 }
 
 model Trip {
-  id          String      @id @default(cuid())
-  title       String
-  isPublic    Boolean     @default(false)
-  status      TripStatus  @default(DRAFT)
-  createdAt   DateTime    @default(now())
+  id        String     @id @default(cuid())
+  title     String
+  isPublic  Boolean    @default(false)
+  status    TripStatus @default(DRAFT)
+  createdAt DateTime   @default(now())
 
   organizerId String
-  organizer   User        @relation("OrganizerTrips", fields: [organizerId], references: [id])
+  organizer   User   @relation("OrganizerTrips", fields: [organizerId], references: [id])
 
-  members     TripMember[]
-  waypoints   Waypoint[]
+  members      TripMember[]
+  waypoints    Waypoint[]
+  joinRequests JoinRequest[]
 }
 
 model TripMember {
-  id        String   @id @default(cuid())
-  role      MemberRole @default(PARTICIPANT)
+  id        String       @id @default(cuid())
+  role      MemberRole   @default(PARTICIPANT)
   status    MemberStatus @default(PENDING)
-  createdAt DateTime @default(now())
+  createdAt DateTime     @default(now())
 
-  tripId    String
-  userId    String
+  tripId String
+  userId String
 
-  trip      Trip     @relation(fields: [tripId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
+  trip Trip @relation(fields: [tripId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([tripId, userId])
 }
@@ -56,11 +58,11 @@ model Waypoint {
   lng       Float
   createdAt DateTime @default(now())
 
-  tripId    String
-  trip      Trip     @relation(fields: [tripId], references: [id])
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id])
 
   createdById String?
-  createdBy   User?    @relation("UserWaypoints", fields: [createdById], references: [id])
+  createdBy   User?   @relation("UserWaypoints", fields: [createdById], references: [id])
 
   @@index([tripId, order])
 }
@@ -82,4 +84,25 @@ enum MemberStatus {
   PENDING
   ACTIVE
   REMOVED
+}
+
+model JoinRequest {
+  id        String            @id @default(cuid())
+  status    JoinRequestStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([tripId, userId])
+  @@index([tripId, status])
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
