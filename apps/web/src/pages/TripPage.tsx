@@ -1,13 +1,14 @@
-import { MapContainer, Marker, Popup, TileLayer, useMapEvents } from "react-leaflet";
-import { useParams } from "react-router-dom";
-import { apiGet, apiPost } from "../api";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Map as LeafletMap } from "leaflet";
+import {MapContainer, Marker, Popup, TileLayer, useMapEvents} from "react-leaflet";
+import {useParams} from "react-router-dom";
+import {apiGet, apiPost} from "../api";
+import {useEffect, useMemo, useRef, useState} from "react";
+import type {Map as LeafletMap} from "leaflet";
+import {Polyline} from "react-leaflet";
 
 type Waypoint = { order: number; lat: number; lng: number; title?: string };
 type Trip = { id: string; title: string; waypoints?: Waypoint[] };
 
-function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
+function ClickToAdd({onAdd}: { onAdd: (lat: number, lng: number) => void }) {
     useMapEvents({
         click(e) {
             onAdd(e.latlng.lat, e.latlng.lng);
@@ -17,7 +18,7 @@ function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
 }
 
 export default function TripPage() {
-    const { id } = useParams();
+    const {id} = useParams();
     const tripId = id ?? "";
     const [trip, setTrip] = useState<Trip | null>(null);
     const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
@@ -46,19 +47,27 @@ export default function TripPage() {
 
 
     function addWaypoint(lat: number, lng: number) {
-        const next: Waypoint = { order: waypoints.length, lat, lng, title: `Точка ${waypoints.length + 1}` };
+        const next: Waypoint = {order: waypoints.length, lat, lng, title: `Точка ${waypoints.length + 1}`};
         setWaypoints([...waypoints, next]);
     }
 
+    function removeWaypoint(order: number) {
+        const filtered = waypoints.filter((w) => w.order !== order);
+        const reindexed = filtered.map((w, idx) => ({ ...w, order: idx, title: `Точка ${idx + 1}` }));
+        setWaypoints(reindexed);
+    }
+
     async function save() {
-        await apiPost(`/trips/${tripId}/waypoints`, { waypoints });
+        await apiPost(`/trips/${tripId}/waypoints`, {waypoints});
         alert("Збережено");
     }
 
-    if (!trip) return <div style={{ padding: 16 }}>Завантаження…</div>;
+    if (!trip) return <div style={{padding: 16}}>Завантаження…</div>;
+
+    const polylinePositions: [number, number][] = waypoints.map((w) => [w.lat, w.lng]);
 
     return (
-        <div style={{ position: "fixed", inset: 0, display: "flex" }}>
+        <div style={{position: "fixed", inset: 0, display: "flex"}}>
             <div
                 style={{
                     width: 320,
@@ -70,32 +79,41 @@ export default function TripPage() {
                 <h3>{trip.title}</h3>
                 <p>Клікни на карту — додаси точку маршруту.</p>
 
-                <button onClick={save} style={{ marginBottom: 12 }}>
+                <button onClick={save} style={{marginBottom: 12}}>
                     Зберегти точки
+                </button>
+                <button onClick={() => setWaypoints([])} style={{ marginBottom: 12 }}>
+                    Очистити маршрут
                 </button>
 
                 <ol>
                     {waypoints.map((w) => (
                         <li key={w.order}>
                             {w.title} — {w.lat.toFixed(5)}, {w.lng.toFixed(5)}
+                            <button onClick={() => removeWaypoint(w.order)} style={{ marginLeft: 8 }}>
+                                Видалити
+                            </button>
                         </li>
                     ))}
                 </ol>
             </div>
 
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{flex: 1, minWidth: 0}}>
                 <MapContainer
                     center={center}
                     zoom={12}
-                    style={{ height: "100%", width: "100%" }}
+                    style={{height: "100%", width: "100%"}}
                     ref={mapRef}
                 >
 
-                <TileLayer
+                    <TileLayer
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         attribution='&copy; OpenStreetMap contributors'
                     />
-                    <ClickToAdd onAdd={addWaypoint} />
+
+                    {polylinePositions.length >= 2 && <Polyline positions={polylinePositions} />}
+
+                    <ClickToAdd onAdd={addWaypoint}/>
                     {waypoints.map((w) => (
                         <Marker key={w.order} position={[w.lat, w.lng]}>
                             <Popup>{w.title}</Popup>
