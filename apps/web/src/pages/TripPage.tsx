@@ -7,6 +7,24 @@ import { useMe } from "../useMe";
 
 type Waypoint = { order: number; lat: number; lng: number; title?: string };
 type Trip = { id: string; title: string; organizerId: string; waypoints?: Waypoint[] };
+type Finance = {
+    baseAmountUah: number;
+    depositUah: number;
+    payDeadline: string; // ISO string
+};
+
+type Payment = {
+    userId: string;
+    amountUah: number;
+    status: "PENDING" | "REPORTED" | "CONFIRMED" | "REJECTED";
+};
+
+type FinanceView = {
+    finance: Finance | null;
+    organizerBankLink: string | null;
+    myPayment: Payment | null;
+    payments?: Payment[]; // для організатора (опційно)
+};
 
 function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
     useMapEvents({
@@ -28,6 +46,13 @@ export default function TripPage() {
     const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
     const [requests, setRequests] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
+
+    const [financeView, setFinanceView] = useState<FinanceView | null>(null);
+
+    const [baseAmountUah, setBaseAmountUah] = useState(1500);
+    const [depositUah, setDepositUah] = useState(0);
+    const [payDeadline, setPayDeadline] = useState(""); // input datetime-local
+
 
     const mapRef = useRef<LeafletMap | null>(null);
 
@@ -63,6 +88,20 @@ export default function TripPage() {
             mapRef.current?.invalidateSize();
         }, 0);
         return () => clearTimeout(t);
+    }, []);
+
+    useEffect(() => {
+        if (!tripId) return;
+        loadFinance().catch(console.error);
+    }, [tripId]);
+
+    useEffect(() => {
+        if (!payDeadline) {
+            const d = new Date();
+            d.setDate(d.getDate() + 1);
+            const pad = (n: number) => String(n).padStart(2, "0");
+            setPayDeadline(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+        }
     }, []);
 
     function addWaypoint(lat: number, lng: number) {
@@ -126,7 +165,6 @@ export default function TripPage() {
         }
     }
 
-    // ✅ ПУНКТ 8: Видалення подорожі (тільки організатор)
     async function deleteTrip() {
         if (!canEditRoute) return;
 
@@ -141,6 +179,61 @@ export default function TripPage() {
         } catch (e) {
             setError(String(e));
         }
+    }
+
+    async function loadFinance() {
+        try {
+            const data = await apiGet<FinanceView>(`/trips/${tripId}/finance`);
+            setFinanceView(data);
+
+            if (data.finance) {
+                setBaseAmountUah(data.finance.baseAmountUah);
+                setDepositUah(data.finance.depositUah ?? 0);
+
+                // перетворимо ISO -> datetime-local
+                const iso = data.finance.payDeadline;
+                const d = new Date(iso);
+                const pad = (n: number) => String(n).padStart(2, "0");
+                const localValue = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                setPayDeadline(localValue);
+            }
+        } catch {
+            setFinanceView({ finance: null, organizerBankLink: null, myPayment: null });
+        }
+    }
+
+    async function saveFinance() {
+        if (!canEditRoute) return;
+
+        // datetime-local -> ISO
+        const iso = new Date(payDeadline).toISOString();
+
+        await apiPost(`/trips/${tripId}/finance`, {
+            baseAmountUah: Number(baseAmountUah),
+            depositUah: Number(depositUah),
+            payDeadline: iso,
+        });
+
+        alert("Фінанси збережено ✅");
+        await loadFinance();
+    }
+
+    async function reportPaid() {
+        await apiPost(`/trips/${tripId}/payments/report`, {});
+        alert("Позначено як сплачено (очікує підтвердження) ⏳");
+        await loadFinance();
+    }
+
+    async function confirmPayment(userId: string) {
+        if (!canEditRoute) return;
+        await apiPost(`/trips/${tripId}/payments/${userId}/confirm`, {});
+        await loadFinance();
+    }
+
+    async function rejectPayment(userId: string) {
+        if (!canEditRoute) return;
+        await apiPost(`/trips/${tripId}/payments/${userId}/reject`, {});
+        await loadFinance();
     }
 
     if (!trip) return <div style={{ padding: 16 }}>Завантаження…</div>;
@@ -202,7 +295,6 @@ export default function TripPage() {
                     {waypoints.map((w) => (
                         <li key={w.order}>
                             {w.title} — {w.lat.toFixed(5)}, {w.lng.toFixed(5)}
-                            {/* ✅ “Видалити точку” тільки для організатора */}
                             {canEditRoute && (
                                 <button onClick={() => removeWaypoint(w.order)} style={{ marginLeft: 8 }}>
                                     Видалити
@@ -212,7 +304,149 @@ export default function TripPage() {
                     ))}
                 </ol>
 
-                {/* ✅ заявки бачить тільки організатор (бо бек віддає лише йому) */}
+                <hr style={{ margin: "12px 0" }} />
+                <h4>Оплата / фінанси</h4>
+
+                {!financeView || !financeView.finance ? (
+                    <div style={{ opacity: 0.8 }}>
+                        <p>Фінанси ще не налаштовано.</p>
+
+                        {canEditRoute && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                                <label>
+                                    Базова сума (грн)
+                                    <input
+                                        type="number"
+                                        value={baseAmountUah}
+                                        onChange={(e) => setBaseAmountUah(Number(e.target.value))}
+                                        style={{ width: "100%" }}
+                                    />
+                                </label>
+
+                                <label>
+                                    Гарантійний внесок (грн)
+                                    <input
+                                        type="number"
+                                        value={depositUah}
+                                        onChange={(e) => setDepositUah(Number(e.target.value))}
+                                        style={{ width: "100%" }}
+                                    />
+                                </label>
+
+                                <label>
+                                    Дедлайн оплати
+                                    <input
+                                        type="datetime-local"
+                                        value={payDeadline}
+                                        onChange={(e) => setPayDeadline(e.target.value)}
+                                        style={{ width: "100%" }}
+                                    />
+                                </label>
+
+                                <button onClick={saveFinance}>Зберегти фінанси</button>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                        <div>Базова сума: <b>{financeView.finance.baseAmountUah} грн</b></div>
+                        <div>Внесок: <b>{financeView.finance.depositUah} грн</b></div>
+                        <div>
+                            Дедлайн: <b>{new Date(financeView.finance.payDeadline).toLocaleString()}</b>
+                        </div>
+
+                        {!canEditRoute && (
+                            <>
+                                <div style={{ marginTop: 6 }}>
+                                    Куди платити:{" "}
+                                    {financeView.organizerBankLink ? (
+                                        <a href={financeView.organizerBankLink} target="_blank" rel="noreferrer">
+                                            банківське посилання організатора
+                                        </a>
+                                    ) : (
+                                        <span style={{ opacity: 0.7 }}>організатор ще не вказав посилання</span>
+                                    )}
+                                </div>
+
+                                <div>
+                                    Мій статус: <b>{financeView.myPayment?.status ?? "PENDING"}</b>
+                                </div>
+
+                                {(financeView.myPayment?.status === "PENDING" || financeView.myPayment?.status === "REJECTED") && (
+                                    <button onClick={reportPaid}>Я сплатив(ла)</button>
+                                )}
+
+                                {financeView.myPayment?.status === "REPORTED" && (
+                                    <div style={{ opacity: 0.8 }}>Очікує підтвердження організатором…</div>
+                                )}
+
+                                {financeView.myPayment?.status === "CONFIRMED" && (
+                                    <div>Оплату підтверджено ✅</div>
+                                )}
+                            </>
+                        )}
+
+                        {canEditRoute && (
+                            <>
+                                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                                    <label>
+                                        Базова сума (грн)
+                                        <input
+                                            type="number"
+                                            value={baseAmountUah}
+                                            onChange={(e) => setBaseAmountUah(Number(e.target.value))}
+                                            style={{ width: "100%" }}
+                                        />
+                                    </label>
+
+                                    <label>
+                                        Гарантійний внесок (грн)
+                                        <input
+                                            type="number"
+                                            value={depositUah}
+                                            onChange={(e) => setDepositUah(Number(e.target.value))}
+                                            style={{ width: "100%" }}
+                                        />
+                                    </label>
+
+                                    <label>
+                                        Дедлайн оплати
+                                        <input
+                                            type="datetime-local"
+                                            value={payDeadline}
+                                            onChange={(e) => setPayDeadline(e.target.value)}
+                                            style={{ width: "100%" }}
+                                        />
+                                    </label>
+
+                                    <button onClick={saveFinance}>Оновити фінанси</button>
+                                </div>
+
+                                <div style={{ marginTop: 12 }}>
+                                    <b>Платежі учасників</b>
+                                    <ul>
+                                        {(financeView.payments ?? []).map((p) => (
+                                            <li key={p.userId} style={{ marginTop: 6 }}>
+                                                {p.userId}: <b>{p.status}</b>{" "}
+                                                {p.status === "REPORTED" && (
+                                                    <>
+                                                        <button onClick={() => confirmPayment(p.userId)} style={{ marginLeft: 6 }}>
+                                                            Підтвердити
+                                                        </button>
+                                                        <button onClick={() => rejectPayment(p.userId)} style={{ marginLeft: 6 }}>
+                                                            Відхилити
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
                 {requests.length > 0 && (
                     <>
                         <h4 style={{ marginTop: 16 }}>Заявки на участь</h4>

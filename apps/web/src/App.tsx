@@ -5,6 +5,8 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ProtectedRoute from "./ProtectedRoute";
 import PublicTripsPage from "./pages/PublicTripsPage";
+import ProfilePage from "./pages/ProfilePage.tsx";
+import NotificationsPage from "./pages/NotificationsPage.tsx";
 
 export default function App() {
     return (
@@ -16,6 +18,9 @@ export default function App() {
                 <Route path="/" element={<ProtectedRoute><TripsPage /></ProtectedRoute>} />
                 <Route path="/public" element={<ProtectedRoute><PublicTripsPage /></ProtectedRoute>} />
                 <Route path="/trips/:id" element={<ProtectedRoute><TripPage /></ProtectedRoute>} />
+
+                <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+                <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
             </Routes>
         </BrowserRouter>
     );
