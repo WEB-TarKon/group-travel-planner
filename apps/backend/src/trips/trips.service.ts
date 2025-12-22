@@ -17,17 +17,6 @@ export class TripsService {
     }
 
     async createTrip(data: { title: string; isPublic?: boolean; organizerId: string }) {
-        // MVP без авторизації: гарантуємо, що organizer існує
-        await this.prisma.user.upsert({
-            where: { id: data.organizerId },
-            update: {},
-            create: {
-                id: data.organizerId,
-                email: `${data.organizerId}@demo.local`,
-                name: "Demo Organizer",
-            },
-        });
-
         return this.prisma.trip.create({
             data: {
                 title: data.title,

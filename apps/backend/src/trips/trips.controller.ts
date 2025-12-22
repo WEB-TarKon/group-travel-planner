@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import {Body, Controller, Get, Param, Post, Req, UseGuards} from "@nestjs/common";
 import { TripsService } from "./trips.service";
 import { SaveWaypointsDto } from "./dto/save-waypoints.dto";
+import { JwtGuard } from "../auth/jwt.guard";
 
+@UseGuards(JwtGuard)
 @Controller("trips")
 export class TripsController {
     constructor(private trips: TripsService) {}
@@ -17,8 +19,12 @@ export class TripsController {
     }
 
     @Post()
-    create(@Body() body: { title: string; isPublic?: boolean; organizerId: string }) {
-        return this.trips.createTrip(body);
+    create(@Req() req: any, @Body() body: { title: string; isPublic?: boolean }) {
+        return this.trips.createTrip({
+            title: body.title,
+            isPublic: body.isPublic,
+            organizerId: req.user.id,
+        });
     }
 
     @Post(":id/waypoints")

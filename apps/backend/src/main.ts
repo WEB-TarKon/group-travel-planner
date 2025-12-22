@@ -13,6 +13,7 @@ async function bootstrap() {
       if (origin.startsWith("http://localhost:")) return cb(null, true);
       return cb(new Error("Not allowed by CORS"), false);
     },
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
 
