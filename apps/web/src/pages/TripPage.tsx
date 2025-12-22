@@ -22,6 +22,7 @@ export default function TripPage() {
     const tripId = id ?? "";
     const [trip, setTrip] = useState<Trip | null>(null);
     const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+    const [requests, setRequests] = useState<any[]>([]);
     const mapRef = useRef<LeafletMap | null>(null);
 
 
@@ -34,6 +35,7 @@ export default function TripPage() {
         (async () => {
             const data = await apiGet<Trip>(`/trips/${tripId}`);
             setTrip(data);
+            await loadRequests();
             setWaypoints(data.waypoints ?? []);
         })().catch(console.error);
     }, [tripId]);
@@ -53,13 +55,35 @@ export default function TripPage() {
 
     function removeWaypoint(order: number) {
         const filtered = waypoints.filter((w) => w.order !== order);
-        const reindexed = filtered.map((w, idx) => ({ ...w, order: idx, title: `Точка ${idx + 1}` }));
+        const reindexed = filtered.map((w, idx) => ({...w, order: idx, title: `Точка ${idx + 1}`}));
         setWaypoints(reindexed);
     }
 
     async function save() {
         await apiPost(`/trips/${tripId}/waypoints`, {waypoints});
         alert("Збережено");
+    }
+
+    async function loadRequests() {
+        try {
+            const data = await apiGet<any[]>(`/trips/${tripId}/join-requests`);
+            setRequests(data);
+        } catch {
+            // якщо не організатор — бек відмовить, це нормально: просто не показуємо
+            setRequests([]);
+        }
+    }
+
+    async function approve(requestId: string) {
+        await apiPost(`/trips/${tripId}/join-requests/${requestId}/approve`, {});
+        await loadRequests();
+        alert("Учасника додано ✅");
+    }
+
+    async function reject(requestId: string) {
+        await apiPost(`/trips/${tripId}/join-requests/${requestId}/reject`, {});
+        await loadRequests();
+        alert("Заявку відхилено");
     }
 
     if (!trip) return <div style={{padding: 16}}>Завантаження…</div>;
@@ -82,7 +106,7 @@ export default function TripPage() {
                 <button onClick={save} style={{marginBottom: 12}}>
                     Зберегти точки
                 </button>
-                <button onClick={() => setWaypoints([])} style={{ marginBottom: 12 }}>
+                <button onClick={() => setWaypoints([])} style={{marginBottom: 12}}>
                     Очистити маршрут
                 </button>
 
@@ -90,12 +114,31 @@ export default function TripPage() {
                     {waypoints.map((w) => (
                         <li key={w.order}>
                             {w.title} — {w.lat.toFixed(5)}, {w.lng.toFixed(5)}
-                            <button onClick={() => removeWaypoint(w.order)} style={{ marginLeft: 8 }}>
+                            <button onClick={() => removeWaypoint(w.order)} style={{marginLeft: 8}}>
                                 Видалити
                             </button>
                         </li>
                     ))}
                 </ol>
+
+                {requests.length > 0 && (
+                    <>
+                        <h4 style={{marginTop: 16}}>Заявки на участь</h4>
+                        <ul>
+                            {requests.map((r) => (
+                                <li key={r.id} style={{marginBottom: 8}}>
+                                    {r.user?.name ?? r.user?.email ?? r.userId}
+                                    <button onClick={() => approve(r.id)} style={{marginLeft: 8}}>
+                                        Прийняти
+                                    </button>
+                                    <button onClick={() => reject(r.id)} style={{marginLeft: 8}}>
+                                        Відхилити
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </>
+                )}
             </div>
 
             <div style={{flex: 1, minWidth: 0}}>
@@ -111,7 +154,7 @@ export default function TripPage() {
                         attribution='&copy; OpenStreetMap contributors'
                     />
 
-                    {polylinePositions.length >= 2 && <Polyline positions={polylinePositions} />}
+                    {polylinePositions.length >= 2 && <Polyline positions={polylinePositions}/>}
 
                     <ClickToAdd onAdd={addWaypoint}/>
                     {waypoints.map((w) => (

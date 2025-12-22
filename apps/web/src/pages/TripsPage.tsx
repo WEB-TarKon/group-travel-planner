@@ -9,6 +9,8 @@ export default function TripsPage() {
 
     const [trips, setTrips] = useState<Trip[]>([]);
     const [title, setTitle] = useState("Тестова подорож");
+    const [isPublic, setIsPublic] = useState(false);
+
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -27,9 +29,10 @@ export default function TripsPage() {
         setLoading(true);
 
         try {
-            const created = await apiPost<Trip>("/trips", { title, isPublic: false });
+            const created = await apiPost<Trip>("/trips", { title, isPublic });
 
             setTitle("Тестова подорож");
+            setIsPublic(false);
 
             setTrips((prev) => [created, ...prev]);
         } catch (e) {
@@ -55,8 +58,18 @@ export default function TripsPage() {
                 <button onClick={logout}>Вийти</button>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <div style={{ marginBottom: 12 }}>
+                <Link to="/public">Перейти до публічних подорожей</Link>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} />
+
+                <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+                    Публічна
+                </label>
+
                 <button onClick={createTrip} disabled={loading}>
                     {loading ? "Створюю..." : "Створити"}
                 </button>
@@ -67,7 +80,7 @@ export default function TripsPage() {
             <ul>
                 {trips.map((t) => (
                     <li key={t.id}>
-                        <Link to={`/trips/${t.id}`}>{t.title}</Link> ({t.status})
+                        <Link to={`/trips/${t.id}`}>{t.title}</Link> ({t.status}) {t.isPublic ? "🌍" : "🔒"}
                     </li>
                 ))}
             </ul>
