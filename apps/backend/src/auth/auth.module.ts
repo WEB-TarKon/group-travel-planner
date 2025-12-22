@@ -1,0 +1,35 @@
+import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import jwtConfig from './jwt.config';
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+import { PrismaService } from '../prisma.service';
+import { StringValue } from 'ms';
+
+@Module({
+  imports: [
+    ConfigModule.forFeature(jwtConfig),
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const jwt = configService.get<{
+          secret: string;
+          expiresIn: StringValue;
+        }>('jwt');
+
+        return {
+          secret: jwt!.secret,
+          signOptions: {
+            expiresIn: jwt!.expiresIn,
+          },
+        };
+      },
+    }),
+  ],
+  providers: [AuthService, PrismaService],
+  controllers: [AuthController],
+  exports: [JwtModule, AuthService],
+})
+export class AuthModule {}
