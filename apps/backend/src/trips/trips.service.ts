@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 
 @Injectable()
 export class TripsService {
@@ -75,6 +76,9 @@ export class TripsService {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new Error("Trip not found");
         if (!trip.isPublic) throw new Error("Trip is private");
+        if (trip.organizerId === userId) {
+            throw new Error("Організатор вже є учасником своєї подорожі.");
+        }
 
         return this.prisma.joinRequest.upsert({
             where: { tripId_userId: { tripId, userId } },
@@ -85,8 +89,8 @@ export class TripsService {
 
     async listJoinRequestsForTrip(tripId: string, organizerId: string) {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
-        if (!trip) throw new Error("Trip not found");
-        if (trip.organizerId !== organizerId) throw new Error("Forbidden");
+        if (!trip) throw new NotFoundException("Trip not found");
+        if (trip.organizerId !== organizerId) throw new ForbiddenException("Forbidden");
 
         return this.prisma.joinRequest.findMany({
             where: { tripId, status: "PENDING" },
@@ -129,6 +133,21 @@ export class TripsService {
             where: { id: requestId },
             data: { status: "REJECTED" },
         });
+
+        return { ok: true };
+    }
+
+    async deleteTrip(tripId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new Error("Trip not found");
+        if (trip.organizerId !== userId) throw new Error("Forbidden");
+
+        await this.prisma.$transaction([
+            this.prisma.joinRequest.deleteMany({ where: { tripId } }),
+            this.prisma.tripMember.deleteMany({ where: { tripId } }),
+            this.prisma.waypoint.deleteMany({ where: { tripId } }),
+            this.prisma.trip.delete({ where: { id: tripId } }),
+        ]);
 
         return { ok: true };
     }
