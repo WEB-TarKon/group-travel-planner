@@ -9,8 +9,13 @@ export class TripsController {
     constructor(private trips: TripsService) {}
 
     @Get()
-    list() {
-        return this.trips.listTrips();
+    list(@Req() req: any) {
+        return this.trips.listMyTrips(req.user.id);
+    }
+
+    @Get("/public/list")
+    publicList() {
+        return this.trips.listPublicTrips();
     }
 
     @Get(":id")
@@ -31,5 +36,25 @@ export class TripsController {
     async saveWaypoints(@Param("id") id: string, @Body() body: SaveWaypointsDto) {
         await this.trips.upsertWaypoints(id, body.waypoints);
         return this.trips.getTrip(id);
+    }
+
+    @Post(":id/join-requests")
+    requestJoin(@Req() req: any, @Param("id") id: string) {
+        return this.trips.requestJoin(id, req.user.id);
+    }
+
+    @Get(":id/join-requests")
+    listRequests(@Req() req: any, @Param("id") id: string) {
+        return this.trips.listJoinRequestsForTrip(id, req.user.id);
+    }
+
+    @Post(":id/join-requests/:requestId/approve")
+    approve(@Req() req: any, @Param("id") id: string, @Param("requestId") requestId: string) {
+        return this.trips.approveJoinRequest(id, requestId, req.user.id);
+    }
+
+    @Post(":id/join-requests/:requestId/reject")
+    reject(@Req() req: any, @Param("id") id: string, @Param("requestId") requestId: string) {
+        return this.trips.rejectJoinRequest(id, requestId, req.user.id);
     }
 }
