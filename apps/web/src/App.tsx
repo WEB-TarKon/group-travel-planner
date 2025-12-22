@@ -4,6 +4,7 @@ import TripPage from "./pages/TripPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ProtectedRoute from "./ProtectedRoute";
+import PublicTripsPage from "./pages/PublicTripsPage";
 
 export default function App() {
     return (
@@ -13,6 +14,7 @@ export default function App() {
                 <Route path="/register" element={<RegisterPage />} />
 
                 <Route path="/" element={<ProtectedRoute><TripsPage /></ProtectedRoute>} />
+                <Route path="/public" element={<ProtectedRoute><PublicTripsPage /></ProtectedRoute>} />
                 <Route path="/trips/:id" element={<ProtectedRoute><TripPage /></ProtectedRoute>} />
             </Routes>
         </BrowserRouter>
