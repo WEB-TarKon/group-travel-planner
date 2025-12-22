@@ -54,15 +54,34 @@ export default function TripsPage() {
 
     return (
         <div style={{ padding: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            {/* ✅ Верхня панель: Заголовок + Профіль + Сповіщення + Вийти */}
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                    marginBottom: 12,
+                    flexWrap: "wrap",
+                }}
+            >
                 <h2 style={{ margin: 0 }}>Мої подорожі</h2>
-                <button onClick={logout}>Вийти</button>
+
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    {/* ✅ ОЦЕ І Є КРОК B4: посилання */}
+                    <Link to="/profile">Профіль</Link>
+                    <Link to="/notifications">Сповіщення</Link>
+
+                    <button onClick={logout}>Вийти</button>
+                </div>
             </div>
 
+            {/* Посилання на публічні */}
             <div style={{ marginBottom: 12 }}>
                 <Link to="/public">Перейти до публічних подорожей</Link>
             </div>
 
+            {/* Створення */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} />
 
