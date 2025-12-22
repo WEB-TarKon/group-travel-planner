@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
 import { TripsService } from "./trips.service";
+import { SaveWaypointsDto } from "./dto/save-waypoints.dto";
 
 @Controller("trips")
 export class TripsController {
@@ -21,10 +22,8 @@ export class TripsController {
     }
 
     @Post(":id/waypoints")
-    saveWaypoints(
-        @Param("id") id: string,
-        @Body() body: { waypoints: Array<{ order: number; lat: number; lng: number; title?: string }> },
-    ) {
-        return this.trips.upsertWaypoints(id, body.waypoints);
+    async saveWaypoints(@Param("id") id: string, @Body() body: SaveWaypointsDto) {
+        await this.trips.upsertWaypoints(id, body.waypoints);
+        return this.trips.getTrip(id);
     }
 }
