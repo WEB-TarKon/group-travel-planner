@@ -2,6 +2,7 @@ import {Body, Controller, Delete, Get, Param, Post, Req, UseGuards} from "@nestj
 import { TripsService } from "./trips.service";
 import { SaveWaypointsDto } from "./dto/save-waypoints.dto";
 import { JwtGuard } from "../auth/jwt.guard";
+import { AuthGuard } from '@nestjs/passport';
 
 @UseGuards(JwtGuard)
 @Controller("trips")
@@ -21,6 +22,20 @@ export class TripsController {
     @Get(":id")
     get(@Param("id") id: string) {
         return this.trips.getTrip(id);
+    }
+
+    @Get('public-trips')
+    getPublicTrips() {
+        return this.trips.getPublicTrips();
+    }
+
+    @UseGuards(AuthGuard('jwt'))
+    @Get('trips/:id/join-requests')
+    getJoinRequests(
+        @Param('id') tripId: string,
+        @Req() req,
+    ) {
+        return this.trips.getJoinRequests(tripId, req.user.id);
     }
 
     @Post()
@@ -61,5 +76,19 @@ export class TripsController {
     @Delete(":id")
     remove(@Req() req: any, @Param("id") id: string) {
         return this.trips.deleteTrip(id, req.user.id);
+    }
+
+    @Post(":id/finance")
+    setFinance(
+        @Req() req: any,
+        @Param("id") id: string,
+        @Body() body: { baseAmountUah: number; depositUah?: number; payDeadline: string }
+    ) {
+        return this.trips.setFinance(id, req.user.id, body);
+    }
+
+    @Get(":id/finance")
+    getFinance(@Req() req: any, @Param("id") id: string) {
+        return this.trips.getFinance(id, req.user.id);
     }
 }

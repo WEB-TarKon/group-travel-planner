@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import {TripStatus} from "@prisma/client";
+import {BadRequestException, ForbiddenException, Injectable, NotFoundException} from "@nestjs/common";
 
 @Injectable()
 export class TripsService {
@@ -150,5 +150,164 @@ export class TripsService {
         ]);
 
         return { ok: true };
+    }
+
+    async getPublicTrips() {
+        return this.prisma.trip.findMany({
+            where: {
+                isPublic: true,
+                status: {
+                    in: [TripStatus.PLANNED, TripStatus.ACTIVE],
+                },
+            },
+            include: {
+                organizer: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+                _count: {
+                    select: {
+                        members: true,
+                    },
+                },
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+    }
+
+    async createJoinRequest(tripId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+        });
+
+        if (!trip) {
+            throw new NotFoundException('Trip not found');
+        }
+
+        if (trip.organizerId === userId) {
+            throw new BadRequestException('Organizer cannot join own trip');
+        }
+
+        const existingMember = await this.prisma.tripMember.findUnique({
+            where: {
+                tripId_userId: {
+                    tripId,
+                    userId,
+                },
+            },
+        });
+
+        if (existingMember) {
+            throw new BadRequestException('User already a member of this trip');
+        }
+
+        const existingRequest = await this.prisma.joinRequest.findFirst({
+            where: {
+                tripId,
+                userId,
+                status: 'PENDING',
+            },
+        });
+
+        if (existingRequest) {
+            throw new BadRequestException('Join request already exists');
+        }
+
+        return this.prisma.joinRequest.create({
+            data: {
+                tripId,
+                userId,
+            },
+        });
+    }
+
+    async getJoinRequests(tripId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+            select: { organizerId: true },
+        });
+
+        if (!trip) {
+            throw new NotFoundException('Trip not found');
+        }
+
+        if (trip.organizerId !== userId) {
+            throw new ForbiddenException('Only organizer can view join requests');
+        }
+
+        return this.prisma.joinRequest.findMany({
+            where: {
+                tripId,
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+    }
+
+    async setFinance(
+        tripId: string,
+        userId: string,
+        body: { baseAmountUah: number; depositUah?: number; payDeadline: string }
+    ) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new NotFoundException("Trip not found");
+
+        if (trip.organizerId !== userId) throw new ForbiddenException("Only organizer can set finance");
+
+        const baseAmountUah = Number(body.baseAmountUah);
+        const depositUah = Number(body.depositUah ?? 0);
+
+        if (!Number.isFinite(baseAmountUah) || baseAmountUah <= 0) {
+            throw new BadRequestException("baseAmountUah must be > 0");
+        }
+        if (!Number.isFinite(depositUah) || depositUah < 0) {
+            throw new BadRequestException("depositUah must be >= 0");
+        }
+
+        const payDeadline = new Date(body.payDeadline);
+        if (Number.isNaN(payDeadline.getTime())) {
+            throw new BadRequestException("payDeadline invalid");
+        }
+
+        const finance = await this.prisma.tripFinance.upsert({
+            where: { tripId },
+            update: { baseAmountUah, depositUah, payDeadline },
+            create: { tripId, baseAmountUah, depositUah, payDeadline },
+        });
+
+        return { finance };
+    }
+
+    async getFinance(tripId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new NotFoundException("Trip not found");
+
+        const finance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
+
+        const organizer = await this.prisma.user.findUnique({
+            where: { id: trip.organizerId },
+            select: { bankLink: true },
+        });
+
+        return {
+            finance,
+            organizerBankLink: organizer?.bankLink ?? null,
+            myPayment: null,
+        };
     }
 }
