@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../api";
 import { Link } from "react-router-dom";
+import { useMe } from "../useMe";
 
 type PublicTrip = {
     id: string;
@@ -12,6 +13,8 @@ type PublicTrip = {
 };
 
 export default function PublicTripsPage() {
+    const me = useMe();
+
     const [trips, setTrips] = useState<PublicTrip[]>([]);
     const [error, setError] = useState<string | null>(null);
 
@@ -50,14 +53,22 @@ export default function PublicTripsPage() {
             {error && <div style={{ color: "crimson", marginBottom: 12 }}>{error}</div>}
 
             <ul>
-                {trips.map((t) => (
-                    <li key={t.id} style={{ marginBottom: 8 }}>
-                        <b>{t.title}</b> ({t.status}){" "}
-                        <button onClick={() => requestJoin(t.id)} style={{ marginLeft: 8 }}>
-                            Подати заявку
-                        </button>
-                    </li>
-                ))}
+                {trips.map((t) => {
+                    const isMyTrip = me?.id === t.organizerId;
+
+                    return (
+                        <li key={t.id} style={{ marginBottom: 8 }}>
+                            <b>{t.title}</b> ({t.status})
+                            {isMyTrip ? (
+                                <span style={{ marginLeft: 8, opacity: 0.7 }}>Це ваша подорож</span>
+                            ) : (
+                                <button onClick={() => requestJoin(t.id)} style={{ marginLeft: 8 }}>
+                                    Подати заявку
+                                </button>
+                            )}
+                        </li>
+                    );
+                })}
             </ul>
         </div>
     );

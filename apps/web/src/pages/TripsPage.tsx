@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api";
+import { clearToken } from "../authStorage";
 
 type Trip = { id: string; title: string; isPublic: boolean; status: string };
 
@@ -43,7 +44,7 @@ export default function TripsPage() {
     }
 
     function logout() {
-        localStorage.removeItem("accessToken");
+        clearToken();
         navigate("/login", { replace: true });
     }
 
