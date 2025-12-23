@@ -38,7 +38,28 @@ export class TripsService {
         });
     }
 
-    upsertWaypoints(tripId: string, waypoints: Array<{ order: number; lat: number; lng: number; title?: string }>) {
+    async upsertWaypoints(tripId: string, waypoints: Array<{ order: number; lat: number; lng: number; title?: string }>) {
+        const existing = await this.prisma.waypoint.findMany({
+            where: { tripId },
+            orderBy: { order: "asc" },
+        });
+
+        if (existing.length >= 2 && waypoints.length >= 2) {
+            const startOld = existing[0];
+            const endOld = existing[existing.length - 1];
+
+            const startNew = waypoints[0];
+            const endNew = waypoints[waypoints.length - 1];
+
+            const startChanged =
+                startNew.lat !== startOld.lat || startNew.lng !== startOld.lng || (startNew.title ?? "") !== (startOld.title ?? "");
+            const endChanged =
+                endNew.lat !== endOld.lat || endNew.lng !== endOld.lng || (endNew.title ?? "") !== (endOld.title ?? "");
+
+            if (startChanged || endChanged) {
+                throw new BadRequestException("Початкову та кінцеву точки змінювати не можна");
+            }
+        }
         return this.prisma.$transaction([
             this.prisma.waypoint.deleteMany({ where: { tripId } }),
             this.prisma.waypoint.createMany({
@@ -299,10 +320,21 @@ export class TripsService {
         if (payDeadlineUser <= now) throw new BadRequestException("Deadline cannot be in the past");
 
         const existingFinance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
-        if (existingFinance) {
+        /*if (existingFinance) {
             const msLeft = existingFinance.payDeadlineUser.getTime() - now.getTime();
             if (msLeft < 2 * 60 * 60 * 1000) {
                 throw new BadRequestException("Cannot change deadline менее ніж за 2 години до завершення");
+            }
+        }*/
+        if (existingFinance) {
+            const msLeft = existingFinance.payDeadlineUser.getTime() - now.getTime();
+
+            const lockMs = process.env.NODE_ENV === "production"
+                ? 2 * 60 * 60 * 1000
+                : 0;
+
+            if (msLeft < lockMs) {
+                throw new BadRequestException("Cannot change deadline менше ніж за 2 години до завершення");
             }
         }
 

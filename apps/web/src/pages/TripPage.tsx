@@ -1,9 +1,9 @@
-import { MapContainer, Marker, Popup, TileLayer, useMapEvents, Polyline } from "react-leaflet";
-import { useNavigate, useParams } from "react-router-dom";
-import { apiDelete, apiGet, apiPost } from "../api";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Map as LeafletMap } from "leaflet";
-import { useMe } from "../useMe";
+import {MapContainer, Marker, Popup, TileLayer, useMapEvents, Polyline} from "react-leaflet";
+import {useNavigate, useParams} from "react-router-dom";
+import {apiDelete, apiGet, apiPost} from "../api";
+import {useEffect, useMemo, useRef, useState} from "react";
+import type {Map as LeafletMap} from "leaflet";
+import {useMe} from "../useMe";
 
 type Waypoint = { order: number; lat: number; lng: number; title?: string };
 type Trip = { id: string; title: string; organizerId: string; waypoints?: Waypoint[] };
@@ -12,22 +12,27 @@ type FinanceView = {
     finance: {
         baseAmountUah: number;
         depositUah: number;
-        payDeadline: string;
+        payDeadlineUser: string;
+        payDeadlineOrganizer: string;
     } | null;
+
     organizerBankLink: string | null;
+
     myPayment: {
         amountUah: number;
         status: "PENDING" | "REPORTED" | "CONFIRMED" | "REJECTED";
         removedAt?: string | null;
     } | null;
+
     payments?: any[];
 };
 
-type EnforceDeadlineResponse = {
+{/*type EnforceDeadlineResponse = {
     ok: boolean;
     removed: number;
     message?: string;
-};
+};*/
+}
 
 type MemberView = {
     user: { id: string; name: string | null; email: string };
@@ -36,7 +41,7 @@ type MemberView = {
     payment: { status: string; amountUah: number } | null;
 };
 
-function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
+function ClickToAdd({onAdd}: { onAdd: (lat: number, lng: number) => void }) {
     useMapEvents({
         click(e) {
             onAdd(e.latlng.lat, e.latlng.lng);
@@ -45,22 +50,68 @@ function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
     return null;
 }
 
+async function reverseGeocode(lat: number, lng: number): Promise<string> {
+    try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
+        const r = await fetch(url, {
+            headers: {
+                "Accept": "application/json",
+            },
+        });
+        const j = await r.json();
+        const name =
+            j?.display_name ||
+            `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        return name;
+    } catch {
+        return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    }
+}
+
+function DraggableMarker({
+                             waypoint,
+                             canDrag,
+                             onMoved,
+                         }: {
+    waypoint: Waypoint;
+    canDrag: boolean;
+    onMoved: (order: number, lat: number, lng: number) => void;
+}) {
+    return (
+        <Marker
+            position={[waypoint.lat, waypoint.lng]}
+            draggable={canDrag}
+            eventHandlers={{
+                dragend: (e) => {
+                    const m = e.target as any;
+                    const p = m.getLatLng();
+                    onMoved(waypoint.order, p.lat, p.lng); // ✅ ВАЖЛИВО: order
+                },
+            }}
+        >
+            <Popup>{waypoint.title}</Popup>
+        </Marker>
+    );
+}
+
+
 export default function TripPage() {
     const navigate = useNavigate();
-    const { id } = useParams();
+    const {id} = useParams();
     const tripId = id ?? "";
 
     const me = useMe();
 
     const [trip, setTrip] = useState<Trip | null>(null);
     const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+    const [routeLocked, setRouteLocked] = useState(false);
     const [requests, setRequests] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [noAccess, setNoAccess] = useState(false);
     const [financeView, setFinanceView] = useState<FinanceView | null>(null);
 
     const [baseAmountUah, setBaseAmountUah] = useState(1500);
-    const [depositUah, setDepositUah] = useState(0);
+    const [depositUah, setDepositUah] = useState<string>("0");
     const [payDeadline, setPayDeadline] = useState("");
 
     const [members, setMembers] = useState<MemberView[]>([]);
@@ -94,6 +145,10 @@ export default function TripPage() {
             setTrip(data);
             setWaypoints(data.waypoints ?? []);
 
+            const wps = data.waypoints ?? [];
+            setWaypoints(wps);
+            setRouteLocked(wps.length >= 2);
+
             await loadMembers();
             await loadFinance();
         })().catch(console.error);
@@ -115,30 +170,87 @@ export default function TripPage() {
         }
     }, []);
 
-    function addWaypoint(lat: number, lng: number) {
+    async function moveWaypoint(order: number, lat: number, lng: number) {
         if (!canEditRoute) return;
-        const next: Waypoint = {
-            order: waypoints.length,
-            lat,
-            lng,
-            title: `Точка ${waypoints.length + 1}`,
-        };
-        setWaypoints([...waypoints, next]);
+
+        if (routeLocked && (order === 0 || order === waypoints.length - 1)) {
+            setError("Початкову та кінцеву точки змінювати не можна");
+            return;
+        }
+
+        const title = await reverseGeocode(lat, lng);
+
+        setWaypoints((prev) =>
+            prev.map((w) => (w.order === order ? { ...w, lat, lng, title } : w))
+        );
+    }
+
+    async function addWaypoint(lat: number, lng: number) {
+        if (!canEditRoute) return;
+
+        const title = await reverseGeocode(lat, lng);
+
+        if (!routeLocked) {
+            const next: Waypoint = {order: waypoints.length, lat, lng, title};
+            setWaypoints([...waypoints, next]);
+            return;
+        }
+
+        if (waypoints.length < 2) {
+            const next: Waypoint = {order: waypoints.length, lat, lng, title};
+            setWaypoints([...waypoints, next]);
+            return;
+        }
+
+        const insertIndex = waypoints.length - 1;
+
+        const next: Waypoint = {order: insertIndex, lat, lng, title};
+
+        const newList = [
+            ...waypoints.slice(0, insertIndex),
+            next,
+            ...waypoints.slice(insertIndex),
+        ].map((w, idx) => ({...w, order: idx}));
+
+        setWaypoints(newList);
     }
 
     function removeWaypoint(order: number) {
         if (!canEditRoute) return;
+
+        if (routeLocked && (order === 0 || order === waypoints.length - 1)) return;
+
         const filtered = waypoints.filter((w) => w.order !== order);
-        const reindexed = filtered.map((w, idx) => ({ ...w, order: idx, title: `Точка ${idx + 1}` }));
+
+        const reindexed = filtered.map((w, idx) => ({
+            ...w,
+            order: idx,
+        }));
+
         setWaypoints(reindexed);
+    }
+
+    function roleUa(role: string) {
+        if (role === "ORGANIZER") return "Організатор";
+        if (role === "PARTICIPANT") return "Учасник";
+        return role;
+    }
+
+    function paymentStatusUa(s: string) {
+        if (s === "PENDING") return "Очікує";
+        if (s === "REPORTED") return "Відмічено користувачем";
+        if (s === "CONFIRMED") return "Підтверджено";
+        if (s === "REJECTED") return "Відхилено";
+        return s;
     }
 
     async function save() {
         if (!canEditRoute) return;
         setError(null);
         try {
-            await apiPost(`/trips/${tripId}/waypoints`, { waypoints });
+            await apiPost(`/trips/${tripId}/waypoints`, {waypoints});
             alert("Збережено");
+            setRouteLocked(waypoints.length >= 2);
         } catch (e) {
             setError(String(e));
         }
@@ -163,14 +275,11 @@ export default function TripPage() {
             if (msg.includes("403") || msg.toLowerCase().includes("forbidden")) {
                 setNoAccess(true);
                 setMembers([]);
-                // можна ще показати повідомлення
                 setError("Ви не маєте доступу до цієї подорожі (можливо вас видалили).");
-                // і повернути на головну
-                navigate("/", { replace: true });
+                navigate("/", {replace: true});
                 return;
             }
 
-            // інші помилки
             setError(msg);
         }
     }
@@ -211,7 +320,7 @@ export default function TripPage() {
         try {
             await apiDelete(`/trips/${tripId}`);
             alert("Подорож видалено");
-            navigate("/", { replace: true });
+            navigate("/", {replace: true});
         } catch (e) {
             setError(String(e));
         }
@@ -224,27 +333,34 @@ export default function TripPage() {
 
             if (data.finance) {
                 setBaseAmountUah(data.finance.baseAmountUah);
-                setDepositUah(data.finance.depositUah ?? 0);
+                setDepositUah(String(data.finance.depositUah ?? 0));
 
-                const iso = data.finance.payDeadline;
+                const iso = data.finance.payDeadlineUser;
                 const d = new Date(iso);
                 const pad = (n: number) => String(n).padStart(2, "0");
                 const localValue = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
                 setPayDeadline(localValue);
             }
         } catch {
-            setFinanceView({ finance: null, organizerBankLink: null, myPayment: null });
+            setFinanceView({finance: null, organizerBankLink: null, myPayment: null});
         }
     }
 
     async function saveFinance() {
         if (!canEditRoute) return;
 
+        const dep = depositUah === "" ? 0 : Number(depositUah);
+
+        if (!Number.isFinite(dep) || dep < 0) {
+            setError("Гарантійний внесок має бути 0 або більше.");
+            return;
+        }
+
         const iso = new Date(payDeadline).toISOString();
 
         await apiPost(`/trips/${tripId}/finance`, {
             baseAmountUah: Number(baseAmountUah),
-            depositUah: Number(depositUah),
+            depositUah: dep,
             payDeadline: iso,
         });
 
@@ -273,10 +389,10 @@ export default function TripPage() {
         await loadFinance();
     }
 
-    if (!trip) return <div style={{ padding: 16 }}>Завантаження…</div>;
+    if (!trip) return <div style={{padding: 16}}>Завантаження…</div>;
 
     return (
-        <div style={{ position: "fixed", inset: 0, display: "flex" }}>
+        <div style={{position: "fixed", inset: 0, display: "flex"}}>
             <div
                 style={{
                     width: 340,
@@ -285,45 +401,55 @@ export default function TripPage() {
                     borderRight: "1px solid #ddd",
                 }}
             >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 8 }}>
-                    <h3 style={{ margin: 0 }}>{trip.title}</h3>
+                <div style={{display: "flex", justifyContent: "space-between", alignItems: "start", gap: 8}}>
+                    <h3 style={{margin: 0}}>{trip.title}</h3>
 
-                    <button onClick={() => navigate("/")} style={{ height: 32 }}>
+                    <button onClick={() => navigate("/")} style={{height: 32}}>
                         ← Назад
                     </button>
                 </div>
 
-                {error && <div style={{ color: "crimson", marginTop: 10 }}>{error}</div>}
+                {error && <div style={{color: "crimson", marginTop: 10}}>{error}</div>}
 
                 {noAccess && (
-                    <div style={{ color: "crimson", marginTop: 10 }}>
+                    <div style={{color: "crimson", marginTop: 10}}>
                         Ви не маєте доступу до цієї подорожі (можливо вас видалили зі списку).
                     </div>
                 )}
 
-                <div style={{ marginTop: 12 }}>
+                <div style={{marginTop: 12}}>
                     {canEditRoute ? (
                         <p>Клікни на карту — додаси точку маршруту.</p>
                     ) : (
-                        <p style={{ opacity: 0.8 }}>Маршрут може редагувати тільки організатор.</p>
+                        <p style={{opacity: 0.8}}>Маршрут може редагувати тільки організатор.</p>
                     )}
 
                     {canEditRoute && (
                         <>
-                            <button onClick={save} style={{ marginBottom: 10, display: "block", width: "100%" }}>
+                            <button onClick={save} style={{marginBottom: 10, display: "block", width: "100%"}}>
                                 Зберегти точки
                             </button>
 
                             <button
-                                onClick={() => setWaypoints([])}
-                                style={{ marginBottom: 10, display: "block", width: "100%" }}
+                                onClick={() => {
+                                    if (waypoints.length <= 2) {
+                                        setWaypoints(waypoints); // нічого
+                                        return;
+                                    }
+                                    const kept = [waypoints[0], waypoints[waypoints.length - 1]].map((w, idx) => ({
+                                        ...w,
+                                        order: idx
+                                    }));
+                                    setWaypoints(kept);
+                                }}
+                                style={{marginBottom: 10, display: "block", width: "100%"}}
                             >
                                 Очистити маршрут
                             </button>
 
                             <button
                                 onClick={deleteTrip}
-                                style={{ marginBottom: 14, display: "block", width: "100%" }}
+                                style={{marginBottom: 14, display: "block", width: "100%"}}
                             >
                                 Видалити подорож
                             </button>
@@ -331,13 +457,13 @@ export default function TripPage() {
                     )}
                 </div>
 
-                <h4 style={{ margin: "10px 0" }}>Точки</h4>
+                <h4 style={{margin: "10px 0"}}>Точки</h4>
                 <ol>
                     {waypoints.map((w) => (
                         <li key={w.order}>
-                            {w.title} — {w.lat.toFixed(5)}, {w.lng.toFixed(5)}
-                            {canEditRoute && (
-                                <button onClick={() => removeWaypoint(w.order)} style={{ marginLeft: 8 }}>
+                            {w.title ?? `Точка ${w.order + 1}`}
+                            {canEditRoute && (!routeLocked || (w.order !== 0 && w.order !== waypoints.length - 1)) && (
+                                <button onClick={() => removeWaypoint(w.order)} style={{marginLeft: 8}}>
                                     Видалити
                                 </button>
                             )}
@@ -345,128 +471,164 @@ export default function TripPage() {
                     ))}
                 </ol>
 
-                <hr style={{ margin: "12px 0" }} />
+                <hr style={{margin: "12px 0"}}/>
                 <h4>Учасники</h4>
 
                 {members.length === 0 ? (
-                    <div style={{ opacity: 0.7 }}>Поки що немає учасників…</div>
+                    <div style={{opacity: 0.7}}>Поки що немає учасників…</div>
                 ) : (
-                    <ul style={{ paddingLeft: 16 }}>
+                    <ul style={{paddingLeft: 16}}>
                         {members.map((m) => {
                             const label = m.user.name || m.user.email;
-                            const pay = m.payment ? `${m.payment.status} (${m.payment.amountUah} грн)` : "—";
                             return (
-                                <li key={m.user.id} style={{ marginBottom: 6 }}>
-                                    {label} — <b>{m.role}</b> — оплата: <b>{pay}</b>
+                                <li key={m.user.id} style={{marginBottom: 6}}>
+                                    {label} — <b>{roleUa(m.role)}</b>
                                 </li>
                             );
                         })}
                     </ul>
                 )}
 
-                <hr style={{ margin: "12px 0" }} />
+                <hr style={{margin: "12px 0"}}/>
                 <h4>Оплата / фінанси</h4>
 
                 {!financeView || !financeView.finance ? (
-                    <div style={{ opacity: 0.8 }}>
-                        <p>Фінанси ще не налаштовано.</p>
+                    <div style={{opacity: 0.95}}>
+                        <p style={{opacity: 0.8}}>Фінанси ще не налаштовано.</p>
 
-                        {canEditRoute && (
-                            <div style={{ display: "grid", gap: 8 }}>
+                        {canEditRoute ? (
+                            <div style={{display: "grid", gap: 8}}>
                                 <label>
                                     Базова сума (грн)
                                     <input
                                         type="number"
                                         value={baseAmountUah}
                                         onChange={(e) => setBaseAmountUah(Number(e.target.value))}
-                                        style={{ width: "100%" }}
+                                        style={{width: "100%"}}
                                     />
                                 </label>
 
                                 <label>
                                     Гарантійний внесок (грн)
                                     <input
-                                        type="number"
+                                        inputMode="numeric"
                                         value={depositUah}
-                                        onChange={(e) => setDepositUah(Number(e.target.value))}
-                                        style={{ width: "100%" }}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            if (v === "") return setDepositUah("");
+                                            if (!/^\d+$/.test(v)) return;
+                                            setDepositUah(v);
+                                        }}
+                                        style={{width: "100%"}}
                                     />
                                 </label>
 
                                 <label>
-                                    Дедлайн оплати
+                                    Дедлайн для учасників
                                     <input
                                         type="datetime-local"
                                         value={payDeadline}
                                         onChange={(e) => setPayDeadline(e.target.value)}
-                                        style={{ width: "100%" }}
+                                        style={{width: "100%"}}
                                     />
                                 </label>
 
+                                <div style={{fontSize: 12, opacity: 0.8}}>
+                                    Дедлайн для організатора (перевірка) буде автоматично:{" "}
+                                    <b>
+                                        {payDeadline
+                                            ? new Date(new Date(payDeadline).getTime() + 30 * 60 * 1000).toLocaleString()
+                                            : "—"}
+                                    </b>
+                                </div>
+
                                 <button onClick={saveFinance}>Зберегти фінанси</button>
+                            </div>
+                        ) : (
+                            <div style={{opacity: 0.8}}>
+                                Фінанси ще не налаштовано організатором.
                             </div>
                         )}
                     </div>
                 ) : (
-                    <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{display: "grid", gap: 8}}>
                         <div>Базова сума: <b>{financeView.finance.baseAmountUah} грн</b></div>
                         <div>Внесок: <b>{financeView.finance.depositUah} грн</b></div>
-                        <div>
-                            Дедлайн: <b>{new Date(financeView.finance.payDeadline).toLocaleString()}</b>
+
+                        {canEditRoute ? (
+                            <>
+                                <div>
+                                    Дедлайн для учасників:{" "}
+                                    <b>{new Date(financeView.finance.payDeadlineUser).toLocaleString()}</b>
+                                </div>
+                                <div>
+                                    Дедлайн для організатора (перевірка):{" "}
+                                    <b>{new Date(financeView.finance.payDeadlineOrganizer).toLocaleString()}</b>
+                                </div>
+                            </>
+                        ) : (
+                            <div>
+                                ДЕДЛАЙН ОПЛАТИ:{" "}
+                                <b>{new Date(financeView.finance.payDeadlineUser).toLocaleString()}</b>
+                            </div>
+                        )}
+
+                        <div style={{marginTop: 6}}>
+                            Куди платити:{" "}
+                            {financeView.organizerBankLink ? (
+                                <a href={financeView.organizerBankLink} target="_blank" rel="noreferrer">
+                                    банківське посилання організатора
+                                </a>
+                            ) : (
+                                <span style={{opacity: 0.7}}>організатор ще не вказав посилання</span>
+                            )}
                         </div>
 
-                        {!canEditRoute && (
-                            <>
-                                <div style={{ marginTop: 6 }}>
-                                    Куди платити:{" "}
-                                    {financeView.organizerBankLink ? (
-                                        <a href={financeView.organizerBankLink} target="_blank" rel="noreferrer">
-                                            банківське посилання організатора
-                                        </a>
-                                    ) : (
-                                        <span style={{ opacity: 0.7 }}>організатор ще не вказав посилання</span>
-                                    )}
-                                </div>
+                        <div>
+                            Мій статус: <b>{paymentStatusUa(financeView.myPayment?.status ?? "PENDING")}</b>
+                        </div>
 
-                                <div>
-                                    Мій статус: <b>{financeView.myPayment?.status ?? "PENDING"}</b>
-                                </div>
+                        {(financeView.myPayment?.status === "PENDING" || financeView.myPayment?.status === "REJECTED") && (
+                            <button onClick={reportPaid}>Я сплатив(ла)</button>
+                        )}
 
-                                {(financeView.myPayment?.status === "PENDING" || financeView.myPayment?.status === "REJECTED") && (
-                                    <button onClick={reportPaid}>Я сплатив(ла)</button>
-                                )}
+                        {financeView.myPayment?.status === "REPORTED" && (
+                            <div style={{opacity: 0.8}}>Очікує підтвердження організатором…</div>
+                        )}
 
-                                {financeView.myPayment?.status === "REPORTED" && (
-                                    <div style={{ opacity: 0.8 }}>Очікує підтвердження організатором…</div>
-                                )}
-
-                                {financeView.myPayment?.status === "CONFIRMED" && (
-                                    <div>Оплату підтверджено</div>
-                                )}
-                            </>
+                        {financeView.myPayment?.status === "CONFIRMED" && (
+                            <div>Оплату підтверджено</div>
                         )}
 
                         {canEditRoute && (
                             <>
-                                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                                <div style={{marginTop: 8, display: "grid", gap: 8}}>
                                     <label>
                                         Базова сума (грн)
                                         <input
                                             type="number"
                                             value={baseAmountUah}
                                             onChange={(e) => setBaseAmountUah(Number(e.target.value))}
-                                            style={{ width: "100%" }}
+                                            style={{width: "100%"}}
                                         />
                                     </label>
 
                                     <label>
                                         Гарантійний внесок (грн)
                                         <input
-                                            type="number"
+                                            inputMode="numeric"
                                             value={depositUah}
-                                            onChange={(e) => setDepositUah(Number(e.target.value))}
-                                            style={{ width: "100%" }}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                // дозволяємо "" (щоб стерти)
+                                                if (v === "") return setDepositUah("");
+                                                // тільки цифри
+                                                if (!/^\d+$/.test(v)) return;
+                                                setDepositUah(v);
+                                            }}
+                                            style={{width: "100%"}}
                                         />
+
                                     </label>
 
                                     <label>
@@ -475,13 +637,13 @@ export default function TripPage() {
                                             type="datetime-local"
                                             value={payDeadline}
                                             onChange={(e) => setPayDeadline(e.target.value)}
-                                            style={{ width: "100%" }}
+                                            style={{width: "100%"}}
                                         />
                                     </label>
 
                                     <button onClick={saveFinance}>Оновити фінанси</button>
 
-                                    <button
+                                    {/*<button
                                         onClick={async () => {
                                             try {
                                                 const res = await apiPost<EnforceDeadlineResponse>(
@@ -500,24 +662,26 @@ export default function TripPage() {
                                         style={{ marginTop: 8 }}
                                     >
                                         Перевірити дедлайн оплати
-                                    </button>
+                                    </button> */}
                                 </div>
 
-                                <div style={{ marginTop: 12 }}>
+                                <div style={{marginTop: 12}}>
                                     <b>Платежі учасників</b>
                                     <ul>
                                         {(financeView.payments ?? []).map((p: any) => {
                                             const label = p.user?.name || p.user?.email || p.userId;
 
                                             return (
-                                                <li key={p.userId} style={{ marginTop: 6 }}>
-                                                    {label}: <b>{p.status}</b>{" "}
+                                                <li key={p.userId} style={{marginTop: 6}}>
+                                                    {label}: <b>{paymentStatusUa(p.status)}</b>
                                                     {p.status === "REPORTED" && (
                                                         <>
-                                                            <button onClick={() => confirmPayment(p.userId)} style={{ marginLeft: 6 }}>
+                                                            <button onClick={() => confirmPayment(p.userId)}
+                                                                    style={{marginLeft: 6}}>
                                                                 Підтвердити
                                                             </button>
-                                                            <button onClick={() => rejectPayment(p.userId)} style={{ marginLeft: 6 }}>
+                                                            <button onClick={() => rejectPayment(p.userId)}
+                                                                    style={{marginLeft: 6}}>
                                                                 Відхилити
                                                             </button>
                                                         </>
@@ -534,15 +698,15 @@ export default function TripPage() {
 
                 {requests.length > 0 && (
                     <>
-                        <h4 style={{ marginTop: 16 }}>Заявки на участь</h4>
+                        <h4 style={{marginTop: 16}}>Заявки на участь</h4>
                         <ul>
                             {requests.map((r) => (
-                                <li key={r.id} style={{ marginBottom: 8 }}>
+                                <li key={r.id} style={{marginBottom: 8}}>
                                     {r.user?.name ?? r.user?.email ?? r.userId}
-                                    <button onClick={() => approve(r.id)} style={{ marginLeft: 8 }}>
+                                    <button onClick={() => approve(r.id)} style={{marginLeft: 8}}>
                                         Прийняти
                                     </button>
-                                    <button onClick={() => reject(r.id)} style={{ marginLeft: 8 }}>
+                                    <button onClick={() => reject(r.id)} style={{marginLeft: 8}}>
                                         Відхилити
                                     </button>
                                 </li>
@@ -552,21 +716,27 @@ export default function TripPage() {
                 )}
             </div>
 
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <MapContainer center={center} zoom={12} style={{ height: "100%", width: "100%" }} ref={mapRef}>
+            <div style={{flex: 1, minWidth: 0}}>
+                <MapContainer center={center} zoom={12} style={{height: "100%", width: "100%"}} ref={mapRef}>
                     <TileLayer
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         attribution="&copy; OpenStreetMap contributors"
                     />
 
-                    {polylinePositions.length >= 2 && <Polyline positions={polylinePositions} />}
+                    {polylinePositions.length >= 2 && <Polyline positions={polylinePositions}/>}
 
-                    {canEditRoute && <ClickToAdd onAdd={addWaypoint} />}
+                    {canEditRoute && <ClickToAdd onAdd={addWaypoint}/>}
 
                     {waypoints.map((w) => (
-                        <Marker key={w.order} position={[w.lat, w.lng]}>
-                            <Popup>{w.title}</Popup>
-                        </Marker>
+                        <DraggableMarker
+                            key={w.order}
+                            waypoint={w}
+                            canDrag={
+                                canEditRoute &&
+                                (!routeLocked || (w.order !== 0 && w.order !== waypoints.length - 1))
+                            }
+                            onMoved={moveWaypoint}
+                        />
                     ))}
                 </MapContainer>
             </div>
