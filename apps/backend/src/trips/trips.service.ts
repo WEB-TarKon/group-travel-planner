@@ -409,4 +409,66 @@ export class TripsService {
             select: { userId: true, amountUah: true, status: true },
         });
     }
+
+    async enforceDeadline(tripId: string, organizerId: string) {
+        const trip = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+        });
+        if (!trip) throw new NotFoundException("Trip not found");
+        if (trip.organizerId !== organizerId)
+            throw new ForbiddenException("Only organizer can do this");
+
+        const finance = await this.prisma.tripFinance.findUnique({
+            where: { tripId },
+        });
+        if (!finance) throw new BadRequestException("Finance not set");
+
+        const now = new Date();
+        if (now < finance.payDeadline) {
+            return {
+                ok: true,
+                removed: 0,
+                message: "Deadline not reached yet",
+            };
+        }
+
+        const unpaidPayments = await this.prisma.payment.findMany({
+            where: {
+                tripId,
+                status: {
+                    in: ["PENDING", "REPORTED", "REJECTED"],
+                },
+                removedAt: null,
+            },
+            select: { userId: true },
+        });
+
+        if (unpaidPayments.length === 0) {
+            return { ok: true, removed: 0 };
+        }
+
+        const userIds = unpaidPayments.map((p) => p.userId);
+
+        await this.prisma.$transaction([
+            this.prisma.tripMember.deleteMany({
+                where: {
+                    tripId,
+                    userId: { in: userIds },
+                },
+            }),
+
+            this.prisma.payment.updateMany({
+                where: {
+                    tripId,
+                    userId: { in: userIds },
+                },
+                data: { removedAt: new Date() },
+            }),
+        ]);
+
+        return {
+            ok: true,
+            removed: userIds.length,
+        };
+    }
 }
