@@ -10,7 +10,7 @@ type Trip = { id: string; title: string; organizerId: string; waypoints?: Waypoi
 type Finance = {
     baseAmountUah: number;
     depositUah: number;
-    payDeadline: string; // ISO string
+    payDeadline: string;
 };
 
 type Payment = {
@@ -23,7 +23,7 @@ type FinanceView = {
     finance: Finance | null;
     organizerBankLink: string | null;
     myPayment: Payment | null;
-    payments?: Payment[]; // для організатора (опційно)
+    payments?: Payment[];
 };
 
 function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
@@ -51,7 +51,7 @@ export default function TripPage() {
 
     const [baseAmountUah, setBaseAmountUah] = useState(1500);
     const [depositUah, setDepositUah] = useState(0);
-    const [payDeadline, setPayDeadline] = useState(""); // input datetime-local
+    const [payDeadline, setPayDeadline] = useState("");
 
 
     const mapRef = useRef<LeafletMap | null>(null);
@@ -105,7 +105,7 @@ export default function TripPage() {
     }, []);
 
     function addWaypoint(lat: number, lng: number) {
-        if (!canEditRoute) return; // страховка
+        if (!canEditRoute) return;
         const next: Waypoint = {
             order: waypoints.length,
             lat,
@@ -116,7 +116,7 @@ export default function TripPage() {
     }
 
     function removeWaypoint(order: number) {
-        if (!canEditRoute) return; // страховка
+        if (!canEditRoute) return;
         const filtered = waypoints.filter((w) => w.order !== order);
         const reindexed = filtered.map((w, idx) => ({ ...w, order: idx, title: `Точка ${idx + 1}` }));
         setWaypoints(reindexed);
@@ -138,7 +138,6 @@ export default function TripPage() {
             const data = await apiGet<any[]>(`/trips/${tripId}/join-requests`);
             setRequests(data);
         } catch {
-            // якщо не організатор — бек відмовить, це нормально
             setRequests([]);
         }
     }
@@ -190,7 +189,6 @@ export default function TripPage() {
                 setBaseAmountUah(data.finance.baseAmountUah);
                 setDepositUah(data.finance.depositUah ?? 0);
 
-                // перетворимо ISO -> datetime-local
                 const iso = data.finance.payDeadline;
                 const d = new Date(iso);
                 const pad = (n: number) => String(n).padStart(2, "0");
@@ -205,7 +203,6 @@ export default function TripPage() {
     async function saveFinance() {
         if (!canEditRoute) return;
 
-        // datetime-local -> ISO
         const iso = new Date(payDeadline).toISOString();
 
         await apiPost(`/trips/${tripId}/finance`, {
@@ -265,7 +262,6 @@ export default function TripPage() {
                         <p style={{ opacity: 0.8 }}>Маршрут може редагувати тільки організатор.</p>
                     )}
 
-                    {/* ✅ кнопки тільки для організатора */}
                     {canEditRoute && (
                         <>
                             <button onClick={save} style={{ marginBottom: 10, display: "block", width: "100%" }}>
@@ -279,7 +275,6 @@ export default function TripPage() {
                                 Очистити маршрут
                             </button>
 
-                            {/* ✅ ПУНКТ 8: кнопка видалення */}
                             <button
                                 onClick={deleteTrip}
                                 style={{ marginBottom: 14, display: "block", width: "100%" }}
@@ -425,21 +420,25 @@ export default function TripPage() {
                                 <div style={{ marginTop: 12 }}>
                                     <b>Платежі учасників</b>
                                     <ul>
-                                        {(financeView.payments ?? []).map((p) => (
-                                            <li key={p.userId} style={{ marginTop: 6 }}>
-                                                {p.userId}: <b>{p.status}</b>{" "}
-                                                {p.status === "REPORTED" && (
-                                                    <>
-                                                        <button onClick={() => confirmPayment(p.userId)} style={{ marginLeft: 6 }}>
-                                                            Підтвердити
-                                                        </button>
-                                                        <button onClick={() => rejectPayment(p.userId)} style={{ marginLeft: 6 }}>
-                                                            Відхилити
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </li>
-                                        ))}
+                                        {(financeView.payments ?? []).map((p: any) => {
+                                            const label = p.user?.name || p.user?.email || p.userId;
+
+                                            return (
+                                                <li key={p.userId} style={{ marginTop: 6 }}>
+                                                    {label}: <b>{p.status}</b>{" "}
+                                                    {p.status === "REPORTED" && (
+                                                        <>
+                                                            <button onClick={() => confirmPayment(p.userId)} style={{ marginLeft: 6 }}>
+                                                                Підтвердити
+                                                            </button>
+                                                            <button onClick={() => rejectPayment(p.userId)} style={{ marginLeft: 6 }}>
+                                                                Відхилити
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </li>
+                                            );
+                                        })}
                                     </ul>
                                 </div>
                             </>
@@ -476,7 +475,6 @@ export default function TripPage() {
 
                     {polylinePositions.length >= 2 && <Polyline positions={polylinePositions} />}
 
-                    {/* ✅ клік-додавання тільки для організатора */}
                     {canEditRoute && <ClickToAdd onAdd={addWaypoint} />}
 
                     {waypoints.map((w) => (

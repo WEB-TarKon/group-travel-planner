@@ -118,6 +118,16 @@ export class TripsService {
             create: { tripId, userId: req.userId, status: "ACTIVE", role: "PARTICIPANT" },
         });
 
+        const finance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
+        if (finance) {
+            const amountUah = finance.baseAmountUah + finance.depositUah;
+
+            await this.prisma.payment.upsert({
+                where: { tripId_userId: { tripId, userId: req.userId } },
+                update: { amountUah, status: "PENDING" },
+                create: { tripId, userId: req.userId, amountUah, status: "PENDING" },
+            });
+        }
         return { ok: true };
     }
 
@@ -143,9 +153,13 @@ export class TripsService {
         if (trip.organizerId !== userId) throw new Error("Forbidden");
 
         await this.prisma.$transaction([
+            this.prisma.payment.deleteMany({ where: { tripId } }),
+            this.prisma.tripFinance.deleteMany({ where: { tripId } }),
+
             this.prisma.joinRequest.deleteMany({ where: { tripId } }),
             this.prisma.tripMember.deleteMany({ where: { tripId } }),
             this.prisma.waypoint.deleteMany({ where: { tripId } }),
+
             this.prisma.trip.delete({ where: { id: tripId } }),
         ]);
 
@@ -290,6 +304,25 @@ export class TripsService {
             create: { tripId, baseAmountUah, depositUah, payDeadline },
         });
 
+        const members = await this.prisma.tripMember.findMany({
+            where: { tripId, status: "ACTIVE" },
+            select: { userId: true, role: true },
+        });
+
+        const amountUah = baseAmountUah + depositUah;
+
+        await this.prisma.$transaction(
+            members
+                .filter((m) => m.userId !== trip.organizerId) // організатору payment не створюємо
+                .map((m) =>
+                    this.prisma.payment.upsert({
+                        where: { tripId_userId: { tripId, userId: m.userId } },
+                        update: { amountUah, status: "PENDING" },
+                        create: { tripId, userId: m.userId, amountUah, status: "PENDING" },
+                    })
+                )
+        );
+
         return { finance };
     }
 
@@ -304,10 +337,76 @@ export class TripsService {
             select: { bankLink: true },
         });
 
+        const myPayment = await this.prisma.payment.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+            select: { userId: true, amountUah: true, status: true },
+        });
+
+        let payments: any[] | undefined = undefined;
+        if (trip.organizerId === userId) {
+            payments = await this.prisma.payment.findMany({
+                where: { tripId },
+                select: {
+                    userId: true,
+                    amountUah: true,
+                    status: true,
+                    user: { select: { id: true, name: true, email: true } },
+                },
+                orderBy: { createdAt: "asc" },
+            });
+        }
+
         return {
             finance,
             organizerBankLink: organizer?.bankLink ?? null,
-            myPayment: null,
+            myPayment: myPayment ?? null,
+            payments,
         };
+    }
+    async reportPayment(tripId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new NotFoundException("Trip not found");
+
+        const member = await this.prisma.tripMember.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+        });
+        if (!member || member.status !== "ACTIVE") throw new ForbiddenException("Not a trip member");
+
+        const payment = await this.prisma.payment.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+        });
+        if (!payment) throw new BadRequestException("Finance not set yet");
+
+        if (payment.status === "CONFIRMED") return payment;
+
+        return this.prisma.payment.update({
+            where: { tripId_userId: { tripId, userId } },
+            data: { status: "REPORTED" },
+            select: { userId: true, amountUah: true, status: true },
+        });
+    }
+
+    async confirmPayment(tripId: string, organizerId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new NotFoundException("Trip not found");
+        if (trip.organizerId !== organizerId) throw new ForbiddenException("Only organizer");
+
+        return this.prisma.payment.update({
+            where: { tripId_userId: { tripId, userId } },
+            data: { status: "CONFIRMED" },
+            select: { userId: true, amountUah: true, status: true },
+        });
+    }
+
+    async rejectPayment(tripId: string, organizerId: string, userId: string) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new NotFoundException("Trip not found");
+        if (trip.organizerId !== organizerId) throw new ForbiddenException("Only organizer");
+
+        return this.prisma.payment.update({
+            where: { tripId_userId: { tripId, userId } },
+            data: { status: "REJECTED" },
+            select: { userId: true, amountUah: true, status: true },
+        });
     }
 }

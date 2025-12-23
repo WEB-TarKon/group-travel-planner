@@ -54,3 +54,18 @@ export async function apiDelete<T>(path: string): Promise<T> {
     if (!res.ok) throw new Error(await parseError(res));
     return res.json() as Promise<T>;
 }
+
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}${path}`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!res.ok) throw new Error(await parseError(res));
+    return res.json() as Promise<T>;
+}

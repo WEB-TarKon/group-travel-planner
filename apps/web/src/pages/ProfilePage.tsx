@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../api";
+import { apiGet, apiPut } from "../api";
 
 type Me = { id: string; email: string; name?: string; bankLink?: string };
 
@@ -18,9 +18,13 @@ export default function ProfilePage() {
 
     async function save() {
         setMsg(null);
-        await apiPost<Me>("/users/me", { name, bankLink }); // якщо бек робить PUT, тоді змінимо на apiPut
-        setMsg("Збережено");
-        await load();
+        try {
+            await apiPut<Me>("/users/me", { name, bankLink });
+            setMsg("Збережено");
+            await load();
+        } catch (e) {
+            setMsg(`Помилка: ${String(e)}`);
+        }
     }
 
     useEffect(() => { load().catch(console.error); }, []);

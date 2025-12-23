@@ -91,4 +91,19 @@ export class TripsController {
     getFinance(@Req() req: any, @Param("id") id: string) {
         return this.trips.getFinance(id, req.user.id);
     }
+
+    @Post(":id/payments/report")
+    reportPayment(@Req() req: any, @Param("id") id: string) {
+        return this.trips.reportPayment(id, req.user.id);
+    }
+
+    @Post(":id/payments/:userId/confirm")
+    confirm(@Req() req: any, @Param("id") id: string, @Param("userId") userId: string) {
+        return this.trips.confirmPayment(id, req.user.id, userId);
+    }
+
+    @Post(":id/payments/:userId/reject")
+    rejectPay(@Req() req: any, @Param("id") id: string, @Param("userId") userId: string) {
+        return this.trips.rejectPayment(id, req.user.id, userId);
+    }
 }
