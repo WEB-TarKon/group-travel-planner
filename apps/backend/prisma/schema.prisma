@@ -141,6 +141,8 @@ model Payment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  removedAt DateTime?
+
   @@unique([tripId, userId])
   @@index([tripId, status])
 }

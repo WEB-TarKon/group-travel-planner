@@ -106,4 +106,9 @@ export class TripsController {
     rejectPay(@Req() req: any, @Param("id") id: string, @Param("userId") userId: string) {
         return this.trips.rejectPayment(id, req.user.id, userId);
     }
+
+    @Post(":id/finance/enforce-deadline")
+    enforceDeadline(@Req() req: any, @Param("id") id: string) {
+        return this.trips.enforceDeadline(id, req.user.id);
+    }
 }
