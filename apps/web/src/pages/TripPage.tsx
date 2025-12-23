@@ -29,6 +29,12 @@ type EnforceDeadlineResponse = {
     message?: string;
 };
 
+type MemberView = {
+    user: { id: string; name: string | null; email: string };
+    role: string;
+    status: string;
+    payment: { status: string; amountUah: number } | null;
+};
 
 function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
     useMapEvents({
@@ -50,13 +56,14 @@ export default function TripPage() {
     const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
     const [requests, setRequests] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
-
+    const [noAccess, setNoAccess] = useState(false);
     const [financeView, setFinanceView] = useState<FinanceView | null>(null);
 
     const [baseAmountUah, setBaseAmountUah] = useState(1500);
     const [depositUah, setDepositUah] = useState(0);
     const [payDeadline, setPayDeadline] = useState("");
 
+    const [members, setMembers] = useState<MemberView[]>([]);
 
     const mapRef = useRef<LeafletMap | null>(null);
 
@@ -80,10 +87,15 @@ export default function TripPage() {
     }, [trip?.id, canEditRoute]);
 
     useEffect(() => {
+        if (!tripId) return;
+
         (async () => {
             const data = await apiGet<Trip>(`/trips/${tripId}`);
             setTrip(data);
             setWaypoints(data.waypoints ?? []);
+
+            await loadMembers();
+            await loadFinance();
         })().catch(console.error);
     }, [tripId]);
 
@@ -93,11 +105,6 @@ export default function TripPage() {
         }, 0);
         return () => clearTimeout(t);
     }, []);
-
-    useEffect(() => {
-        if (!tripId) return;
-        loadFinance().catch(console.error);
-    }, [tripId]);
 
     useEffect(() => {
         if (!payDeadline) {
@@ -146,11 +153,35 @@ export default function TripPage() {
         }
     }
 
+    async function loadMembers() {
+        try {
+            setNoAccess(false);
+            const data = await apiGet<MemberView[]>(`/trips/${tripId}/members`);
+            setMembers(data);
+        } catch (e: any) {
+            const msg = String(e);
+            if (msg.includes("403") || msg.toLowerCase().includes("forbidden")) {
+                setNoAccess(true);
+                setMembers([]);
+                // можна ще показати повідомлення
+                setError("Ви не маєте доступу до цієї подорожі (можливо вас видалили).");
+                // і повернути на головну
+                navigate("/", { replace: true });
+                return;
+            }
+
+            // інші помилки
+            setError(msg);
+        }
+    }
+
     async function approve(requestId: string) {
         setError(null);
         try {
             await apiPost(`/trips/${tripId}/join-requests/${requestId}/approve`, {});
             await loadRequests();
+            await loadMembers();
+            await loadFinance();
             alert("Учасника додано");
         } catch (e) {
             setError(String(e));
@@ -162,6 +193,8 @@ export default function TripPage() {
         try {
             await apiPost(`/trips/${tripId}/join-requests/${requestId}/reject`, {});
             await loadRequests();
+            await loadMembers();
+            await loadFinance();
             alert("Заявку відхилено");
         } catch (e) {
             setError(String(e));
@@ -217,18 +250,21 @@ export default function TripPage() {
 
         alert("Фінанси збережено");
         await loadFinance();
+        await loadMembers();
     }
 
     async function reportPaid() {
         await apiPost(`/trips/${tripId}/payments/report`, {});
         alert("Позначено як сплачено (очікує підтвердження)");
         await loadFinance();
+        await loadMembers();
     }
 
     async function confirmPayment(userId: string) {
         if (!canEditRoute) return;
         await apiPost(`/trips/${tripId}/payments/${userId}/confirm`, {});
         await loadFinance();
+        await loadMembers();
     }
 
     async function rejectPayment(userId: string) {
@@ -258,6 +294,12 @@ export default function TripPage() {
                 </div>
 
                 {error && <div style={{ color: "crimson", marginTop: 10 }}>{error}</div>}
+
+                {noAccess && (
+                    <div style={{ color: "crimson", marginTop: 10 }}>
+                        Ви не маєте доступу до цієї подорожі (можливо вас видалили зі списку).
+                    </div>
+                )}
 
                 <div style={{ marginTop: 12 }}>
                     {canEditRoute ? (
@@ -302,6 +344,25 @@ export default function TripPage() {
                         </li>
                     ))}
                 </ol>
+
+                <hr style={{ margin: "12px 0" }} />
+                <h4>Учасники</h4>
+
+                {members.length === 0 ? (
+                    <div style={{ opacity: 0.7 }}>Поки що немає учасників…</div>
+                ) : (
+                    <ul style={{ paddingLeft: 16 }}>
+                        {members.map((m) => {
+                            const label = m.user.name || m.user.email;
+                            const pay = m.payment ? `${m.payment.status} (${m.payment.amountUah} грн)` : "—";
+                            return (
+                                <li key={m.user.id} style={{ marginBottom: 6 }}>
+                                    {label} — <b>{m.role}</b> — оплата: <b>{pay}</b>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
 
                 <hr style={{ margin: "12px 0" }} />
                 <h4>Оплата / фінанси</h4>
@@ -380,7 +441,7 @@ export default function TripPage() {
                                 )}
 
                                 {financeView.myPayment?.status === "CONFIRMED" && (
-                                    <div>Оплату підтверджено ✅</div>
+                                    <div>Оплату підтверджено</div>
                                 )}
                             </>
                         )}
@@ -430,6 +491,7 @@ export default function TripPage() {
 
                                                 alert(`Готово! Видалено учасників: ${res.removed}`);
                                                 await loadFinance();
+                                                await loadMembers();
                                             } catch (e) {
                                                 alert("Помилка при перевірці дедлайну");
                                                 console.error(e);
