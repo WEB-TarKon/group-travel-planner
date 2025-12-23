@@ -20,7 +20,7 @@ export default function App() {
                 <Route path="/trips/:id" element={<ProtectedRoute><TripPage /></ProtectedRoute>} />
 
                 <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-                <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
+                <Route path="/notifications" element={<NotificationsPage />} />
             </Routes>
         </BrowserRouter>
     );
