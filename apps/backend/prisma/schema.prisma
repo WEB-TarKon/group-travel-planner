@@ -121,7 +121,9 @@ model TripFinance {
 
   baseAmountUah Int
   depositUah    Int      @default(0)
-  payDeadline   DateTime
+
+  payDeadlineUser      DateTime @default(now())
+  payDeadlineOrganizer DateTime @default(now())
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -142,6 +144,7 @@ model Payment {
   updatedAt DateTime @updatedAt
 
   removedAt DateTime?
+  reportedAt DateTime?
 
   @@unique([tripId, userId])
   @@index([tripId, status])
@@ -154,16 +157,27 @@ enum PaymentStatus {
   REJECTED
 }
 
+enum NotificationType {
+  DEADLINE_CHANGED
+  DEADLINE_REMINDER_ORGANIZER
+  MEMBER_EXCLUDED
+}
+
 model Notification {
   id     String @id @default(cuid())
+
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  title  String
-  body   String
+  type    NotificationType @default(DEADLINE_CHANGED)
+  title   String           @default("")
+  message String           @default("")
+
+  tripId String?
   isRead Boolean @default(false)
 
   createdAt DateTime @default(now())
+  readAt    DateTime?
 
   @@index([userId, isRead])
 }

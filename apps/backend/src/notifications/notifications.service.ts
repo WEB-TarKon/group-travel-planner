@@ -5,8 +5,8 @@ import { PrismaService } from "../prisma.service";
 export class NotificationsService {
     constructor(private prisma: PrismaService) {}
 
-    create(userId: string, title: string, body: string) {
-        return this.prisma.notification.create({ data: { userId, title, body } });
+    create(userId: string, title: string, message: string) {
+        return this.prisma.notification.create({ data: { userId, title, message } });
     }
 
     list(userId: string) {
@@ -20,7 +20,7 @@ export class NotificationsService {
     markRead(userId: string, id: string) {
         return this.prisma.notification.updateMany({
             where: { id, userId },
-            data: { isRead: true },
+            data: { isRead: true, readAt: new Date() },
         });
     }
 }

@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ScheduleModule } from "@nestjs/schedule";
 
 @Module({
   imports: [PrismaModule, TripsModule, AuthModule,
@@ -16,7 +17,9 @@ import { NotificationsModule } from './notifications/notifications.module';
       isGlobal: true,
     }),
     UsersModule,
-    NotificationsModule,],
+    NotificationsModule,
+    ScheduleModule.forRoot(),
+  ],
   controllers: [AppController, HealthController],
   providers: [AppService, PrismaService],
 })
