@@ -1,10 +1,11 @@
 import { PrismaService } from "../prisma.service";
-import {TripStatus} from "@prisma/client";
+import {NotificationType, PaymentStatus, TripStatus} from "@prisma/client";
 import {BadRequestException, ForbiddenException, Injectable, NotFoundException} from "@nestjs/common";
+import {NotificationsService} from "../notifications/notifications.service";
 
 @Injectable()
 export class TripsService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private prisma: PrismaService, private notifications: NotificationsService) {}
 
     listTrips() {
         return this.prisma.trip.findMany({ orderBy: { createdAt: "desc" } });
@@ -280,48 +281,68 @@ export class TripsService {
     ) {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new NotFoundException("Trip not found");
-
         if (trip.organizerId !== userId) throw new ForbiddenException("Only organizer can set finance");
 
         const baseAmountUah = Number(body.baseAmountUah);
         const depositUah = Number(body.depositUah ?? 0);
 
-        if (!Number.isFinite(baseAmountUah) || baseAmountUah <= 0) {
+        if (!Number.isFinite(baseAmountUah) || baseAmountUah <= 0)
             throw new BadRequestException("baseAmountUah must be > 0");
-        }
-        if (!Number.isFinite(depositUah) || depositUah < 0) {
+        if (!Number.isFinite(depositUah) || depositUah < 0)
             throw new BadRequestException("depositUah must be >= 0");
+
+        const payDeadlineUser = new Date(body.payDeadline);
+        if (Number.isNaN(payDeadlineUser.getTime()))
+            throw new BadRequestException("payDeadline invalid");
+
+        const now = new Date();
+        if (payDeadlineUser <= now) throw new BadRequestException("Deadline cannot be in the past");
+
+        const existingFinance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
+        if (existingFinance) {
+            const msLeft = existingFinance.payDeadlineUser.getTime() - now.getTime();
+            if (msLeft < 2 * 60 * 60 * 1000) {
+                throw new BadRequestException("Cannot change deadline менее ніж за 2 години до завершення");
+            }
         }
 
-        const payDeadline = new Date(body.payDeadline);
-        if (Number.isNaN(payDeadline.getTime())) {
-            throw new BadRequestException("payDeadline invalid");
-        }
+        const payDeadlineOrganizer = new Date(payDeadlineUser.getTime() + 30 * 60 * 1000);
 
         const finance = await this.prisma.tripFinance.upsert({
             where: { tripId },
-            update: { baseAmountUah, depositUah, payDeadline },
-            create: { tripId, baseAmountUah, depositUah, payDeadline },
+            update: { baseAmountUah, depositUah, payDeadlineUser, payDeadlineOrganizer },
+            create: { tripId, baseAmountUah, depositUah, payDeadlineUser, payDeadlineOrganizer },
         });
 
         const members = await this.prisma.tripMember.findMany({
             where: { tripId, status: "ACTIVE" },
-            select: { userId: true, role: true },
+            select: { userId: true },
         });
 
         const amountUah = baseAmountUah + depositUah;
 
         await this.prisma.$transaction(
             members
-                .filter((m) => m.userId !== trip.organizerId) // організатору payment не створюємо
+                .filter((m) => m.userId !== trip.organizerId)
                 .map((m) =>
                     this.prisma.payment.upsert({
                         where: { tripId_userId: { tripId, userId: m.userId } },
-                        update: { amountUah, status: "PENDING" },
+                        update: { amountUah, status: "PENDING", reportedAt: null },
                         create: { tripId, userId: m.userId, amountUah, status: "PENDING" },
                     })
                 )
         );
+
+        const receivers = members.map((m) => m.userId);
+        await this.prisma.notification.createMany({
+            data: receivers.map((uid) => ({
+                userId: uid,
+                tripId,
+                type: NotificationType.DEADLINE_CHANGED,
+                title: "Оновлено дедлайн оплати",
+                message: `Новий дедлайн оплати: ${payDeadlineUser.toISOString().slice(0, 16).replace("T", " ")}`,
+            })),
+        });
 
         return { finance };
     }
@@ -363,6 +384,7 @@ export class TripsService {
             payments,
         };
     }
+
     async reportPayment(tripId: string, userId: string) {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new NotFoundException("Trip not found");
@@ -372,17 +394,25 @@ export class TripsService {
         });
         if (!member || member.status !== "ACTIVE") throw new ForbiddenException("Not a trip member");
 
+        const finance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
+        if (!finance) throw new BadRequestException("Finance not set yet");
+
+        const now = new Date();
+        if (now > finance.payDeadlineUser) {
+            throw new BadRequestException("Payment is closed (deadline passed)");
+        }
+
         const payment = await this.prisma.payment.findUnique({
             where: { tripId_userId: { tripId, userId } },
         });
-        if (!payment) throw new BadRequestException("Finance not set yet");
+        if (!payment) throw new BadRequestException("Payment record not found");
 
         if (payment.status === "CONFIRMED") return payment;
 
         return this.prisma.payment.update({
             where: { tripId_userId: { tripId, userId } },
-            data: { status: "REPORTED" },
-            select: { userId: true, amountUah: true, status: true },
+            data: { status: "REPORTED", reportedAt: new Date() },
+            select: { userId: true, amountUah: true, status: true, reportedAt: true },
         });
     }
 
@@ -424,7 +454,7 @@ export class TripsService {
         if (!finance) throw new BadRequestException("Finance not set");
 
         const now = new Date();
-        if (now < finance.payDeadline) {
+        if (now < finance.payDeadlineUser) {
             return {
                 ok: true,
                 removed: 0,
@@ -432,22 +462,33 @@ export class TripsService {
             };
         }
 
-        const unpaidPayments = await this.prisma.payment.findMany({
+        const unpaidMembers = await this.prisma.tripMember.findMany({
             where: {
                 tripId,
-                status: {
-                    in: ["PENDING", "REPORTED", "REJECTED"],
+                user: {
+                    payments: {
+                        some: {
+                            tripId,
+                            status: {
+                                in: [
+                                    PaymentStatus.PENDING,
+                                    PaymentStatus.REPORTED,
+                                    PaymentStatus.REJECTED,
+                                ],
+                            },
+                            removedAt: null,
+                        },
+                    },
                 },
-                removedAt: null,
             },
             select: { userId: true },
         });
 
-        if (unpaidPayments.length === 0) {
+        if (unpaidMembers.length === 0) {
             return { ok: true, removed: 0 };
         }
 
-        const userIds = unpaidPayments.map((p) => p.userId);
+        const userIds = unpaidMembers.map((m) => m.userId);
 
         await this.prisma.$transaction([
             this.prisma.tripMember.deleteMany({
@@ -461,14 +502,61 @@ export class TripsService {
                 where: {
                     tripId,
                     userId: { in: userIds },
+                    status: {
+                        in: [
+                            PaymentStatus.PENDING,
+                            PaymentStatus.REPORTED,
+                            PaymentStatus.REJECTED,
+                        ],
+                    },
+                    removedAt: null,
                 },
                 data: { removedAt: new Date() },
             }),
         ]);
 
+        if (userIds.length > 0) {
+            await this.prisma.notification.createMany({
+                data: userIds.map((uid) => ({
+                    userId: uid,
+                    tripId, // Можна додати, щоб клікнувши на сповіщення, відкривалась поїздка
+                    type: NotificationType.MEMBER_EXCLUDED,
+                    title: "Виключено з подорожі",
+                    message: "Вас було виключено з подорожі через несплату до дедлайну.",
+                })),
+            });
+        }
+
         return {
             ok: true,
             removed: userIds.length,
         };
+    }
+
+    async listMembers(tripId: string, userId: string) {
+        const m = await this.prisma.tripMember.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+        });
+        if (!m || m.status !== "ACTIVE") throw new ForbiddenException("Forbidden");
+
+        const members = await this.prisma.tripMember.findMany({
+            where: { tripId, status: "ACTIVE" },
+            include: { user: { select: { id: true, name: true, email: true } } },
+            orderBy: { createdAt: "asc" as any },
+        });
+
+        const payments = await this.prisma.payment.findMany({
+            where: { tripId },
+            select: { userId: true, status: true, amountUah: true },
+        });
+
+        const payMap = new Map(payments.map((p) => [p.userId, p]));
+
+        return members.map((x) => ({
+            user: x.user,
+            role: x.role,
+            status: x.status,
+            payment: payMap.get(x.userId) ?? null,
+        }));
     }
 }

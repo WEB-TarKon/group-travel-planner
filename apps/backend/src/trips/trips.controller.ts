@@ -63,6 +63,11 @@ export class TripsController {
         return this.trips.listJoinRequestsForTrip(id, req.user.id);
     }
 
+    @Get(":id/members")
+    members(@Req() req: any, @Param("id") id: string) {
+        return this.trips.listMembers(id, req.user.id);
+    }
+
     @Post(":id/join-requests/:requestId/approve")
     approve(@Req() req: any, @Param("id") id: string, @Param("requestId") requestId: string) {
         return this.trips.approveJoinRequest(id, requestId, req.user.id);
