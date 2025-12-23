@@ -7,24 +7,28 @@ import { useMe } from "../useMe";
 
 type Waypoint = { order: number; lat: number; lng: number; title?: string };
 type Trip = { id: string; title: string; organizerId: string; waypoints?: Waypoint[] };
-type Finance = {
-    baseAmountUah: number;
-    depositUah: number;
-    payDeadline: string;
-};
-
-type Payment = {
-    userId: string;
-    amountUah: number;
-    status: "PENDING" | "REPORTED" | "CONFIRMED" | "REJECTED";
-};
 
 type FinanceView = {
-    finance: Finance | null;
+    finance: {
+        baseAmountUah: number;
+        depositUah: number;
+        payDeadline: string;
+    } | null;
     organizerBankLink: string | null;
-    myPayment: Payment | null;
-    payments?: Payment[];
+    myPayment: {
+        amountUah: number;
+        status: "PENDING" | "REPORTED" | "CONFIRMED" | "REJECTED";
+        removedAt?: string | null;
+    } | null;
+    payments?: any[];
 };
+
+type EnforceDeadlineResponse = {
+    ok: boolean;
+    removed: number;
+    message?: string;
+};
+
 
 function ClickToAdd({ onAdd }: { onAdd: (lat: number, lng: number) => void }) {
     useMapEvents({
@@ -147,7 +151,7 @@ export default function TripPage() {
         try {
             await apiPost(`/trips/${tripId}/join-requests/${requestId}/approve`, {});
             await loadRequests();
-            alert("Учасника додано ✅");
+            alert("Учасника додано");
         } catch (e) {
             setError(String(e));
         }
@@ -173,7 +177,7 @@ export default function TripPage() {
         setError(null);
         try {
             await apiDelete(`/trips/${tripId}`);
-            alert("Подорож видалено ✅");
+            alert("Подорож видалено");
             navigate("/", { replace: true });
         } catch (e) {
             setError(String(e));
@@ -211,13 +215,13 @@ export default function TripPage() {
             payDeadline: iso,
         });
 
-        alert("Фінанси збережено ✅");
+        alert("Фінанси збережено");
         await loadFinance();
     }
 
     async function reportPaid() {
         await apiPost(`/trips/${tripId}/payments/report`, {});
-        alert("Позначено як сплачено (очікує підтвердження) ⏳");
+        alert("Позначено як сплачено (очікує підтвердження)");
         await loadFinance();
     }
 
@@ -415,6 +419,26 @@ export default function TripPage() {
                                     </label>
 
                                     <button onClick={saveFinance}>Оновити фінанси</button>
+
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                const res = await apiPost<EnforceDeadlineResponse>(
+                                                    `/trips/${tripId}/finance/enforce-deadline`,
+                                                    {}
+                                                );
+
+                                                alert(`Готово! Видалено учасників: ${res.removed}`);
+                                                await loadFinance();
+                                            } catch (e) {
+                                                alert("Помилка при перевірці дедлайну");
+                                                console.error(e);
+                                            }
+                                        }}
+                                        style={{ marginTop: 8 }}
+                                    >
+                                        Перевірити дедлайн оплати
+                                    </button>
                                 </div>
 
                                 <div style={{ marginTop: 12 }}>
