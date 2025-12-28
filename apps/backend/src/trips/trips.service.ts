@@ -674,9 +674,12 @@ export class TripsService {
     }
 
     async listPendingPayments(tripId: string, organizerId: string) {
+        if (!organizerId) return [];
+
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new Error("Trip not found");
-        if (trip.organizerId !== organizerId) throw new Error("Forbidden");
+
+        if (trip.organizerId !== organizerId) return [];
 
         return this.prisma.payment.findMany({
             where: { tripId, status: "REPORTED" },
@@ -691,6 +694,7 @@ export class TripsService {
                 proofName: true,
                 proofMime: true,
                 updatedAt: true,
+                rejectReason: true,
                 user: { select: { email: true, name: true } },
             },
         });

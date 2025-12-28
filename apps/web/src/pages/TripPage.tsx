@@ -1,6 +1,6 @@
 import {MapContainer, Marker, Popup, TileLayer, useMapEvents, Polyline} from "react-leaflet";
 import {useNavigate, useParams} from "react-router-dom";
-import { apiDelete, apiGet, apiPost, apiPostForm } from "../api";
+import {apiDelete, apiGet, apiPost, apiPostForm} from "../api";
 import {useEffect, useMemo, useRef, useState} from "react";
 import type {Map as LeafletMap} from "leaflet";
 import {useMe} from "../useMe";
@@ -155,7 +155,11 @@ export default function TripPage() {
 
             await loadMembers();
             await loadFinance();
-            await loadPending();
+            if (canEditRoute) {
+                await loadPending();
+            } else {
+                setPendingPayments([]);
+            }
         })().catch(console.error);
     }, [tripId]);
 
@@ -174,6 +178,21 @@ export default function TripPage() {
             setPayDeadline(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
         }
     }, []);
+
+    useEffect(() => {
+        if (!tripId) return;
+        if (!canEditRoute) return;
+
+        // одразу підтягуємо pending
+        loadPending().catch(() => {});
+
+        // далі — автоматично кожні 5 секунд
+        const t = setInterval(() => {
+            loadPending().catch(() => {});
+        }, 5000);
+
+        return () => clearInterval(t);
+    }, [tripId, canEditRoute]);
 
     async function loadPending() {
         if (!id) return;
@@ -226,7 +245,7 @@ export default function TripPage() {
         const title = await reverseGeocode(lat, lng);
 
         setWaypoints((prev) =>
-            prev.map((w) => (w.order === order ? { ...w, lat, lng, title } : w))
+            prev.map((w) => (w.order === order ? {...w, lat, lng, title} : w))
         );
     }
 
@@ -414,26 +433,6 @@ export default function TripPage() {
         await loadMembers();
     }
 
-    async function reportPaid() {
-        await apiPost(`/trips/${tripId}/payments/report`, {});
-        alert("Позначено як сплачено (очікує підтвердження)");
-        await loadFinance();
-        await loadMembers();
-    }
-
-    async function confirmPayment(userId: string) {
-        if (!canEditRoute) return;
-        await apiPost(`/trips/${tripId}/payments/${userId}/confirm`, {});
-        await loadFinance();
-        await loadMembers();
-    }
-
-    async function rejectPayment(userId: string) {
-        if (!canEditRoute) return;
-        await apiPost(`/trips/${tripId}/payments/${userId}/reject`, {});
-        await loadFinance();
-    }
-
     if (!trip) return <div style={{padding: 16}}>Завантаження…</div>;
 
     return (
@@ -534,50 +533,29 @@ export default function TripPage() {
                     </ul>
                 )}
 
-                <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
-                    <h3 style={{ marginTop: 0 }}>Оплата</h3>
-
-                    <div style={{ display: "grid", gap: 10, maxWidth: 520 }}>
-                        <div>
-                            <label>Коментар (необов’язково)</label>
-                            <input value={payNote} onChange={(e) => setPayNote(e.target.value)} style={{ width: "100%" }} />
-                        </div>
-
-                        <div>
-                            <label>Файл чеку/скріну (png/jpg/pdf)</label>
-                            <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                onChange={(e) => setPayFile(e.target.files?.[0] || null)}
-                            />
-                        </div>
-
-                        <button onClick={reportPaymentWithFile}>Я оплатив — відправити на перевірку</button>
-                    </div>
-                </section>
-
                 {canEditRoute && (
-                    <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
-                        <h3 style={{ marginTop: 0 }}>Оплати на перевірку</h3>
-
-                        {pendingPayments.length === 0 && <div style={{ opacity: 0.75 }}>Немає оплат на перевірку</div>}
+                    <section style={{border: "1px solid #ddd", borderRadius: 8, padding: 12}}>
+                        <h3 style={{marginTop: 0}}>Оплати на перевірку</h3>
+                        <button onClick={loadPending}>Оновити</button>
+                        {pendingPayments.length === 0 && <div style={{opacity: 0.75}}>Немає оплат на перевірку</div>}
 
                         <ul>
                             {pendingPayments.map((p) => (
-                                <li key={p.id} style={{ marginBottom: 10 }}>
+                                <li key={p.id} style={{marginBottom: 10}}>
                                     <div>
                                         <b>{p.user?.name || p.user?.email || p.userId}</b>
                                     </div>
-                                    {p.note && <div style={{ opacity: 0.8 }}>Коментар: {p.note}</div>}
+                                    {p.note && <div style={{opacity: 0.8}}>Коментар: {p.note}</div>}
                                     {p.proofUrl && (
                                         <div>
-                                            <a href={`http://localhost:3000${p.proofUrl}`} target="_blank" rel="noreferrer">
+                                            <a href={`http://localhost:3000${p.proofUrl}`} target="_blank"
+                                               rel="noreferrer">
                                                 Відкрити файл: {p.proofName || p.proofUrl}
                                             </a>
                                         </div>
                                     )}
 
-                                    <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <div style={{marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap"}}>
                                         <button
                                             onClick={async () => {
                                                 await apiPost(`/trips/${id}/payments/${p.userId}/confirm`, {});
@@ -592,7 +570,7 @@ export default function TripPage() {
                                         <button
                                             onClick={async () => {
                                                 const reason = prompt("Причина відхилення (необов’язково)") || "";
-                                                await apiPost(`/trips/${id}/payments/${p.userId}/reject`, { reason });
+                                                await apiPost(`/trips/${id}/payments/${p.userId}/reject`, {reason});
                                                 await loadFinance();
                                                 await loadMembers();
                                                 await loadPending();
@@ -706,10 +684,6 @@ export default function TripPage() {
                             Мій статус: <b>{paymentStatusUa(financeView.myPayment?.status ?? "PENDING")}</b>
                         </div>
 
-                        {(financeView.myPayment?.status === "PENDING" || financeView.myPayment?.status === "REJECTED") && (
-                            <button onClick={reportPaid}>Я сплатив(ла)</button>
-                        )}
-
                         {financeView.myPayment?.status === "REPORTED" && (
                             <div style={{opacity: 0.8}}>Очікує підтвердження організатором…</div>
                         )}
@@ -793,16 +767,9 @@ export default function TripPage() {
                                                 <li key={p.userId} style={{marginTop: 6}}>
                                                     {label}: <b>{paymentStatusUa(p.status)}</b>
                                                     {p.status === "REPORTED" && (
-                                                        <>
-                                                            <button onClick={() => confirmPayment(p.userId)}
-                                                                    style={{marginLeft: 6}}>
-                                                                Підтвердити
-                                                            </button>
-                                                            <button onClick={() => rejectPayment(p.userId)}
-                                                                    style={{marginLeft: 6}}>
-                                                                Відхилити
-                                                            </button>
-                                                        </>
+                                                        <span style={{marginLeft: 6, opacity: 0.8}}>
+    (перевіряється у блоці “Оплати на перевірку”)
+  </span>
                                                     )}
                                                 </li>
                                             );
@@ -831,6 +798,52 @@ export default function TripPage() {
                             ))}
                         </ul>
                     </>
+                )}
+
+                {!canEditRoute && (
+                    <section style={{border: "1px solid #ddd", borderRadius: 8, padding: 12, marginTop: 12}}>
+                        <h3 style={{marginTop: 0}}>Оплата</h3>
+
+                        {financeView?.myPayment?.status === "CONFIRMED" && (
+                            <div><b>Оплачено ✅</b></div>
+                        )}
+
+                        {financeView?.myPayment?.status === "REPORTED" && (
+                            <div style={{opacity: 0.85}}>Оплата на перевірці у організатора…</div>
+                        )}
+
+                        {(financeView?.myPayment?.status === "PENDING" ||
+                            financeView?.myPayment?.status === "REJECTED" ||
+                            !financeView?.myPayment) && (
+                            <div style={{display: "grid", gap: 10, maxWidth: 520}}>
+                                <div>
+                                    <label>Коментар (необов’язково)</label>
+                                    <input
+                                        value={payNote}
+                                        onChange={(e) => setPayNote(e.target.value)}
+                                        style={{width: "100%"}}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label>Файл чеку/скріну (png/jpg/pdf)</label>
+                                    <input
+                                        type="file"
+                                        accept="image/*,application/pdf"
+                                        onChange={(e) => setPayFile(e.target.files?.[0] || null)}
+                                    />
+                                </div>
+
+                                <button onClick={reportPaymentWithFile}>Я оплатив — відправити на перевірку</button>
+
+                                {financeView?.myPayment?.status === "REJECTED" && (
+                                    <div style={{color: "crimson"}}>
+                                        Оплату відхилено.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </section>
                 )}
             </div>
 
