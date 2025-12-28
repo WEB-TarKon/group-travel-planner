@@ -15,6 +15,17 @@ export default function TripsPage() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
+    const [unread, setUnread] = useState(0);
+
+    async function loadUnread() {
+        try {
+            const data = await apiGet<{ count: number }>("/notifications/unread-count");
+            setUnread(data.count);
+        } catch {
+            // якщо бек ще не оновлений — просто не валимо UI
+        }
+    }
+
     async function load() {
         setError(null);
         try {
@@ -52,9 +63,13 @@ export default function TripsPage() {
         load();
     }, []);
 
+    useEffect(() => {
+        loadUnread();
+    }, []);
+
+
     return (
         <div style={{ padding: 16 }}>
-            {/* ✅ Верхня панель: Заголовок + Профіль + Сповіщення + Вийти */}
             <div
                 style={{
                     display: "flex",
@@ -68,20 +83,20 @@ export default function TripsPage() {
                 <h2 style={{ margin: 0 }}>Мої подорожі</h2>
 
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    {/* ✅ ОЦЕ І Є КРОК B4: посилання */}
                     <Link to="/profile">Профіль</Link>
-                    <Link to="/notifications">Сповіщення</Link>
+                    <button onClick={() => navigate("/notifications")}>
+                        Сповіщення {unread > 0 ? `(${unread})` : ""}
+                    </button>
+
 
                     <button onClick={logout}>Вийти</button>
                 </div>
             </div>
 
-            {/* Посилання на публічні */}
             <div style={{ marginBottom: 12 }}>
                 <Link to="/public">Перейти до публічних подорожей</Link>
             </div>
 
-            {/* Створення */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} />
 
