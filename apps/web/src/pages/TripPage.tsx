@@ -1,6 +1,6 @@
 import {MapContainer, Marker, Popup, TileLayer, useMapEvents, Polyline} from "react-leaflet";
 import {useNavigate, useParams} from "react-router-dom";
-import {apiDelete, apiGet, apiPost} from "../api";
+import { apiDelete, apiGet, apiPost, apiPostForm } from "../api";
 import {useEffect, useMemo, useRef, useState} from "react";
 import type {Map as LeafletMap} from "leaflet";
 import {useMe} from "../useMe";
@@ -114,6 +114,10 @@ export default function TripPage() {
     const [depositUah, setDepositUah] = useState<string>("0");
     const [payDeadline, setPayDeadline] = useState("");
 
+    const [payNote, setPayNote] = useState("");
+    const [payFile, setPayFile] = useState<File | null>(null);
+    const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+
     const [members, setMembers] = useState<MemberView[]>([]);
 
     const mapRef = useRef<LeafletMap | null>(null);
@@ -151,6 +155,7 @@ export default function TripPage() {
 
             await loadMembers();
             await loadFinance();
+            await loadPending();
         })().catch(console.error);
     }, [tripId]);
 
@@ -169,6 +174,46 @@ export default function TripPage() {
             setPayDeadline(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
         }
     }, []);
+
+    async function loadPending() {
+        if (!id) return;
+        try {
+            const p = await apiGet<any[]>(`/trips/${id}/payments/pending`);
+            setPendingPayments(p);
+        } catch {
+            // якщо не організатор — просто ігноруємо
+        }
+    }
+
+    async function reportPaymentWithFile() {
+        if (!id) return;
+
+        if (!payFile) {
+            setError("Додайте файл (скрін/чек) перед відправкою.");
+            return;
+        }
+
+        setError(null);
+
+        const form = new FormData();
+        form.append("file", payFile);
+        if (payNote.trim()) form.append("note", payNote.trim());
+
+        try {
+            await apiPostForm(`/trips/${id}/payments/report`, form);
+            alert("Оплату відправлено на перевірку ✅");
+
+            setPayFile(null);
+            setPayNote("");
+
+            // оновлюємо дані (без load())
+            await loadFinance();
+            await loadMembers();
+            await loadPending();
+        } catch (e: any) {
+            setError(e?.message || "Не вдалося відправити оплату");
+        }
+    }
 
     async function moveWaypoint(order: number, lat: number, lng: number) {
         if (!canEditRoute) return;
@@ -487,6 +532,79 @@ export default function TripPage() {
                             );
                         })}
                     </ul>
+                )}
+
+                <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+                    <h3 style={{ marginTop: 0 }}>Оплата</h3>
+
+                    <div style={{ display: "grid", gap: 10, maxWidth: 520 }}>
+                        <div>
+                            <label>Коментар (необов’язково)</label>
+                            <input value={payNote} onChange={(e) => setPayNote(e.target.value)} style={{ width: "100%" }} />
+                        </div>
+
+                        <div>
+                            <label>Файл чеку/скріну (png/jpg/pdf)</label>
+                            <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                onChange={(e) => setPayFile(e.target.files?.[0] || null)}
+                            />
+                        </div>
+
+                        <button onClick={reportPaymentWithFile}>Я оплатив — відправити на перевірку</button>
+                    </div>
+                </section>
+
+                {canEditRoute && (
+                    <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+                        <h3 style={{ marginTop: 0 }}>Оплати на перевірку</h3>
+
+                        {pendingPayments.length === 0 && <div style={{ opacity: 0.75 }}>Немає оплат на перевірку</div>}
+
+                        <ul>
+                            {pendingPayments.map((p) => (
+                                <li key={p.id} style={{ marginBottom: 10 }}>
+                                    <div>
+                                        <b>{p.user?.name || p.user?.email || p.userId}</b>
+                                    </div>
+                                    {p.note && <div style={{ opacity: 0.8 }}>Коментар: {p.note}</div>}
+                                    {p.proofUrl && (
+                                        <div>
+                                            <a href={`http://localhost:3000${p.proofUrl}`} target="_blank" rel="noreferrer">
+                                                Відкрити файл: {p.proofName || p.proofUrl}
+                                            </a>
+                                        </div>
+                                    )}
+
+                                    <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                        <button
+                                            onClick={async () => {
+                                                await apiPost(`/trips/${id}/payments/${p.userId}/confirm`, {});
+                                                await loadFinance();
+                                                await loadMembers();
+                                                await loadPending();
+                                            }}
+                                        >
+                                            Підтвердити
+                                        </button>
+
+                                        <button
+                                            onClick={async () => {
+                                                const reason = prompt("Причина відхилення (необов’язково)") || "";
+                                                await apiPost(`/trips/${id}/payments/${p.userId}/reject`, { reason });
+                                                await loadFinance();
+                                                await loadMembers();
+                                                await loadPending();
+                                            }}
+                                        >
+                                            Відхилити
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
                 )}
 
                 <hr style={{margin: "12px 0"}}/>
