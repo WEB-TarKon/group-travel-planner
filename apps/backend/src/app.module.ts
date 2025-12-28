@@ -10,6 +10,7 @@ import { ConfigModule } from '@nestjs/config';
 import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ScheduleModule } from "@nestjs/schedule";
+import { MemoriesModule } from "./memories/memories.module";
 
 @Module({
   imports: [PrismaModule, TripsModule, AuthModule,
@@ -19,6 +20,7 @@ import { ScheduleModule } from "@nestjs/schedule";
     UsersModule,
     NotificationsModule,
     ScheduleModule.forRoot(),
+    MemoriesModule
   ],
   controllers: [AppController, HealthController],
   providers: [AppService, PrismaService],

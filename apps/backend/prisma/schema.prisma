@@ -22,13 +22,16 @@ model User {
 
   payments      Payment[]
   notifications Notification[]
+
+  tripMemories     TripMemory[]
+  tripMemoriesDone TripMemoryDone[]
 }
 
 model Trip {
   id        String     @id @default(cuid())
   title     String
   isPublic  Boolean    @default(false)
-  status    TripStatus @default(DRAFT)
+  status    TripStatus @default(ACTIVE)
   createdAt DateTime   @default(now())
 
   organizerId String
@@ -40,6 +43,9 @@ model Trip {
 
   finance  TripFinance?
   payments Payment[]
+
+  memories     TripMemory[]
+  memoriesDone TripMemoryDone[]
 }
 
 model TripMember {
@@ -120,7 +126,7 @@ model TripFinance {
   trip   Trip   @relation(fields: [tripId], references: [id])
 
   baseAmountUah Int
-  depositUah    Int      @default(0)
+  depositUah    Int @default(0)
 
   payDeadlineUser      DateTime @default(now())
   payDeadlineOrganizer DateTime @default(now())
@@ -143,17 +149,17 @@ model Payment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  removedAt DateTime?
+  removedAt  DateTime?
   reportedAt DateTime?
 
-  @@unique([tripId, userId])
-  @@index([tripId, status])
-
-  proofUrl     String?   // /uploads/.... або S3 URL
+  proofUrl     String? // /uploads/.... або S3 URL
   proofName    String?
   proofMime    String?
   note         String?
   rejectReason String?
+
+  @@unique([tripId, userId])
+  @@index([tripId, status])
 }
 
 enum PaymentStatus {
@@ -178,7 +184,7 @@ enum NotificationType {
 }
 
 model Notification {
-  id     String @id @default(cuid())
+  id String @id @default(cuid())
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
@@ -190,8 +196,44 @@ model Notification {
   tripId String?
   isRead Boolean @default(false)
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   readAt    DateTime?
 
   @@index([userId, isRead])
+}
+
+enum MemoryType {
+  TEXT
+  PHOTO
+  VIDEO
+  AUDIO
+}
+
+model TripMemory {
+  id        String     @id @default(cuid())
+  tripId    String
+  userId    String
+  type      MemoryType
+  text      String?
+  fileUrl   String?
+  fileName  String?
+  fileMime  String?
+  createdAt DateTime   @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([tripId])
+}
+
+model TripMemoryDone {
+  id     String   @id @default(cuid())
+  tripId String
+  userId String
+  doneAt DateTime @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([tripId, userId])
 }
