@@ -17,6 +17,7 @@ export default function PublicTripsPage() {
 
     const [trips, setTrips] = useState<PublicTrip[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [message, setMessage] = useState<string | null>(null);
 
     async function load() {
         setError(null);
@@ -30,11 +31,18 @@ export default function PublicTripsPage() {
 
     async function requestJoin(tripId: string) {
         setError(null);
+        setMessage(null);
+        setError(null);
         try {
             await apiPost(`/trips/${tripId}/join-requests`, {});
             alert("Заявку надіслано ✅");
-        } catch (e) {
-            setError(String(e));
+        } catch (e: any) {
+            const msg = String(e?.message || e);
+            if (msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("already")) {
+                setMessage("Заявка вже була подана раніше ⏳");
+                return;
+            }
+            setError(msg);
         }
     }
 
@@ -50,7 +58,8 @@ export default function PublicTripsPage() {
                 <Link to="/">← Назад до моїх подорожей</Link>
             </div>
 
-            {error && <div style={{ color: "crimson", marginBottom: 12 }}>{error}</div>}
+            {message && <div style={{ color: "green", marginTop: 10 }}>{message}</div>}
+            {error && <div style={{ color: "crimson", marginTop: 10 }}>{error}</div>}
 
             <ul>
                 {trips.map((t) => {
