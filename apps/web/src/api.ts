@@ -69,3 +69,26 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
     if (!res.ok) throw new Error(await parseError(res));
     return res.json() as Promise<T>;
 }
+
+export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+    const token = getToken();
+
+    const res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: form,
+    });
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Помилка ${res.status}`);
+    }
+
+    // інколи бекенд може повернути пусто
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+        return (await res.text()) as unknown as T;
+    }
+
+    return (await res.json()) as T;
+}
