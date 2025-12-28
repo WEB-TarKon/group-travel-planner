@@ -6,7 +6,13 @@ import type {Map as LeafletMap} from "leaflet";
 import {useMe} from "../useMe";
 
 type Waypoint = { order: number; lat: number; lng: number; title?: string };
-type Trip = { id: string; title: string; organizerId: string; waypoints?: Waypoint[] };
+type Trip = {
+    id: string;
+    title: string;
+    organizerId: string;
+    status?: "DRAFT" | "ACTIVE" | "FINISHED";
+    waypoints?: Waypoint[];
+};
 
 type FinanceView = {
     finance: {
@@ -118,6 +124,12 @@ export default function TripPage() {
     const [payFile, setPayFile] = useState<File | null>(null);
     const [pendingPayments, setPendingPayments] = useState<any[]>([]);
 
+    const [memories, setMemories] = useState<any[]>([]);
+    const [memText, setMemText] = useState("");
+    const [memType, setMemType] = useState<"TEXT"|"PHOTO"|"VIDEO"|"AUDIO">("TEXT");
+    const [memFile, setMemFile] = useState<File | null>(null);
+    const [doneStatus, setDoneStatus] = useState<any[]>([]);
+
     const [members, setMembers] = useState<MemberView[]>([]);
 
     const mapRef = useRef<LeafletMap | null>(null);
@@ -155,7 +167,11 @@ export default function TripPage() {
 
             await loadMembers();
             await loadFinance();
-            if (canEditRoute) {
+            await loadMemories();
+            await loadDoneStatus();
+            const isOrganizerNow = !!(me && data && me.id === data.organizerId);
+
+            if (isOrganizerNow) {
                 await loadPending();
             } else {
                 setPendingPayments([]);
@@ -193,6 +209,57 @@ export default function TripPage() {
 
         return () => clearInterval(t);
     }, [tripId, canEditRoute]);
+
+    async function finishTrip() {
+        if (!canEditRoute) return;
+        await apiPost(`/trips/${tripId}/memories/finish`, {});
+        alert("Подорож завершено. Тепер учасники можуть додавати спогади.");
+        // оновити trip
+        const data = await apiGet<Trip>(`/trips/${tripId}`);
+        setTrip(data);
+        await loadMemories();
+        await loadDoneStatus();
+    }
+
+    async function addMemory() {
+        if (!memText.trim() && !memFile) {
+            setError("Додайте текст або файл.");
+            return;
+        }
+        setError(null);
+
+        const form = new FormData();
+        form.append("type", memType);
+        if (memText.trim()) form.append("text", memText.trim());
+        if (memFile) form.append("file", memFile);
+
+        await apiPostForm(`/trips/${tripId}/memories`, form);
+        setMemText("");
+        setMemFile(null);
+        alert("Додано ✅");
+        await loadMemories();
+    }
+
+    async function markDoneMemories() {
+        await apiPost(`/trips/${tripId}/memories/done`, {});
+        alert("Позначено як завершено ✅");
+        await loadDoneStatus();
+    }
+
+    async function loadMemories() {
+        try {
+            const m = await apiGet<any[]>(`/trips/${tripId}/memories`);
+            setMemories(m);
+        } catch {}
+    }
+
+    async function loadDoneStatus() {
+        if (!canEditRoute) return;
+        try {
+            const d = await apiGet<any[]>(`/trips/${tripId}/memories/done-status`);
+            setDoneStatus(d);
+        } catch {}
+    }
 
     async function loadPending() {
         if (!id) return;
@@ -845,6 +912,152 @@ export default function TripPage() {
                         )}
                     </section>
                 )}
+
+                <hr style={{ margin: "12px 0" }} />
+                <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+                    <h3 style={{ marginTop: 0 }}>Альбом спогадів</h3>
+
+                    {/* 1) Якщо подорож ще НЕ завершена */}
+                    {trip.status !== "FINISHED" ? (
+                        <div style={{ opacity: 0.9 }}>
+                            <div style={{ marginBottom: 8 }}>
+                                Спогади можна додавати тільки після того, як організатор завершить подорож.
+                            </div>
+
+                            {canEditRoute ? (
+                                <button onClick={finishTrip} style={{ width: "100%" }}>
+                                    Завершити подорож
+                                </button>
+                            ) : (
+                                <div style={{ opacity: 0.75 }}>Очікуємо завершення подорожі організатором…</div>
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            {/* 2) Форма додавання спогаду */}
+                            <div style={{ display: "grid", gap: 8 }}>
+                                <label>
+                                    Тип спогаду
+                                    <select
+                                        value={memType}
+                                        onChange={(e) => setMemType(e.target.value as any)}
+                                        style={{ width: "100%" }}
+                                    >
+                                        <option value="TEXT">Текст</option>
+                                        <option value="PHOTO">Фото</option>
+                                        <option value="VIDEO">Відео</option>
+                                        <option value="AUDIO">Аудіо</option>
+                                    </select>
+                                </label>
+
+                                <label>
+                                    Текст (необовʼязково)
+                                    <textarea
+                                        value={memText}
+                                        onChange={(e) => setMemText(e.target.value)}
+                                        rows={3}
+                                        style={{ width: "100%" }}
+                                    />
+                                </label>
+
+                                <label>
+                                    Файл (необовʼязково)
+                                    <input
+                                        type="file"
+                                        accept={
+                                            memType === "PHOTO"
+                                                ? "image/*"
+                                                : memType === "VIDEO"
+                                                    ? "video/*"
+                                                    : memType === "AUDIO"
+                                                        ? "audio/*"
+                                                        : "image/*,video/*,audio/*,application/pdf"
+                                        }
+                                        onChange={(e) => setMemFile(e.target.files?.[0] || null)}
+                                    />
+                                </label>
+
+                                <button onClick={addMemory}>Додати спогад</button>
+
+                                <button onClick={markDoneMemories} style={{ marginTop: 4 }}>
+                                    Я завершив(ла) додавання спогадів
+                                </button>
+                            </div>
+
+                            {/* 3) Організатору: хто завершив */}
+                            {canEditRoute && (
+                                <div style={{ marginTop: 12 }}>
+                                    <b>Статус учасників</b>
+                                    {doneStatus.length === 0 ? (
+                                        <div style={{ opacity: 0.75, marginTop: 6 }}>Поки що ніхто не завершив…</div>
+                                    ) : (
+                                        <ul style={{ paddingLeft: 16, marginTop: 6 }}>
+                                            {doneStatus.map((x: any) => (
+                                                <li key={x.userId}>
+                                                    {(x.name || x.email) + " — "}
+                                                    {x.doneAt ? (
+                                                        <b>Завершив(ла)</b>
+                                                    ) : (
+                                                        <span style={{ opacity: 0.75 }}>ще додає…</span>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 4) Список спогадів */}
+                            <div style={{ marginTop: 12 }}>
+                                <b>Спогади</b>
+
+                                {memories.length === 0 ? (
+                                    <div style={{ opacity: 0.75, marginTop: 6 }}>Поки що порожньо…</div>
+                                ) : (
+                                    <ul style={{ paddingLeft: 16, marginTop: 6 }}>
+                                        {memories.map((m: any) => {
+                                            const author = m.user?.name || m.user?.email || "Учасник";
+                                            const date = m.createdAt ? new Date(m.createdAt).toLocaleString() : "";
+
+                                            return (
+                                                <li key={m.id} style={{ marginBottom: 10 }}>
+                                                    <div style={{ fontSize: 12, opacity: 0.8 }}>
+                                                        {author} • {m.type} • {date}
+                                                    </div>
+
+                                                    {m.text && <div style={{ marginTop: 4 }}>{m.text}</div>}
+
+                                                    {m.fileUrl && (
+                                                        <div style={{ marginTop: 4 }}>
+                                                            <a href={`http://localhost:3000${m.fileUrl}`} target="_blank" rel="noreferrer">
+                                                                Відкрити файл: {m.fileName || m.fileUrl}
+                                                            </a>
+                                                        </div>
+                                                    )}
+
+                                                    {/* видаляти можна лише свій — якщо бек повертає user.id */}
+                                                    {m.user?.id === me?.id && (
+                                                        <button
+                                                            onClick={async () => {
+                                                                if (!confirm("Видалити цей спогад?")) return;
+                                                                await apiDelete(`/trips/${tripId}/memories/${m.id}`);
+                                                                await loadMemories();
+                                                            }}
+                                                            style={{ marginTop: 6 }}
+                                                        >
+                                                            Видалити
+                                                        </button>
+                                                    )}
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
+                            </div>
+                        </>
+                    )}
+                </section>
+
             </div>
 
             <div style={{flex: 1, minWidth: 0}}>
