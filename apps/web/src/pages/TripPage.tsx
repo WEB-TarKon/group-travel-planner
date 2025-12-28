@@ -170,12 +170,14 @@ export default function TripPage() {
             await loadFinance();
             await loadMemories();
             await loadMyDone();
-            await loadDoneStatus();
+
             const isOrganizerNow = !!(me && data && me.id === data.organizerId);
 
             if (isOrganizerNow) {
+                await loadDoneStatus();
                 await loadPending();
             } else {
+                setDoneStatus([]);        // важливо: без запиту на бек
                 setPendingPayments([]);
             }
         })().catch(console.error);
@@ -261,11 +263,16 @@ export default function TripPage() {
     }
 
     async function loadDoneStatus() {
+        // якщо не організатор — навіть не звертаємось до бекенду
+        if (!canEditRoute) {
+            setDoneStatus([]);
+            return;
+        }
+
         try {
             const d = await apiGet<any[]>(`/trips/${tripId}/memories/done-status`);
             setDoneStatus(d);
         } catch {
-            // якщо ти не організатор — бек дасть Forbidden, і це ок -> просто ігноруємо
             setDoneStatus([]);
         }
     }
@@ -952,12 +959,12 @@ export default function TripPage() {
                         </div>
                     ) : (
                         <>
-                            {/* 2) Форма додавання спогаду / або повідомлення що завершено */}
+                            {/* 2) Форма додавання спогаду */}
                             {myDoneAt ? (
-                                <div style={{ padding: 10, border: "1px solid #ddd", borderRadius: 8, opacity: 0.9 }}>
+                                <div style={{ padding: 10, border: "1px dashed #999", borderRadius: 8, opacity: 0.9 }}>
                                     <b>Ви завершили додавання спогадів ✅</b>
-                                    <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
-                                        Дата: {new Date(myDoneAt).toLocaleString()}
+                                    <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
+                                        Якщо треба — скажи організатору, щоб дозволив знову (пізніше додамо кнопку “скинути статус”).
                                     </div>
                                 </div>
                             ) : (
@@ -977,7 +984,7 @@ export default function TripPage() {
                                     </label>
 
                                     <label>
-                                        Текст {memType === "TEXT" ? "(обов’язково)" : "(необовʼязково)"}
+                                        Текст (необовʼязково)
                                         <textarea
                                             value={memText}
                                             onChange={(e) => setMemText(e.target.value)}
@@ -986,10 +993,10 @@ export default function TripPage() {
                                         />
                                     </label>
 
-                                    {/* ФАЙЛ ПОКАЗУЄМО ТІЛЬКИ ЯКЩО НЕ TEXT */}
+                                    {/* ФАЙЛ показуємо ТІЛЬКИ якщо НЕ TEXT */}
                                     {memType !== "TEXT" && (
                                         <label>
-                                            Файл (необовʼязково)
+                                            Файл (обовʼязково для фото/відео/аудіо)
                                             <input
                                                 type="file"
                                                 accept={
@@ -999,7 +1006,7 @@ export default function TripPage() {
                                                             ? "video/*"
                                                             : memType === "AUDIO"
                                                                 ? "audio/*"
-                                                                : "image/*,video/*,audio/*,application/pdf"
+                                                                : "image/*,video/*,audio/*"
                                                 }
                                                 onChange={(e) => setMemFile(e.target.files?.[0] || null)}
                                             />

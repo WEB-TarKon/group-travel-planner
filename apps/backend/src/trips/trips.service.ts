@@ -207,16 +207,26 @@ export class TripsService {
         if (!trip) throw new Error("Trip not found");
         if (trip.organizerId !== userId) throw new Error("Forbidden");
 
-        await this.prisma.$transaction([
-            this.prisma.payment.deleteMany({ where: { tripId } }),
-            this.prisma.tripFinance.deleteMany({ where: { tripId } }),
+        await this.prisma.$transaction(async (tx) => {
+            // 1) Спогади (якщо у вас є ці таблиці в схемі)
+            //    (вони були у вас в помилці TripMemory_tripId_fkey)
+            await tx.tripMemoryDone.deleteMany({ where: { tripId } });
+            await tx.tripMemory.deleteMany({ where: { tripId } });
 
-            this.prisma.joinRequest.deleteMany({ where: { tripId } }),
-            this.prisma.tripMember.deleteMany({ where: { tripId } }),
-            this.prisma.waypoint.deleteMany({ where: { tripId } }),
+            // 2) Оплати + фінанси
+            await tx.payment.deleteMany({ where: { tripId } });
+            await tx.tripFinance.deleteMany({ where: { tripId } });
 
-            this.prisma.trip.delete({ where: { id: tripId } }),
-        ]);
+            // 3) Заявки/учасники
+            await tx.joinRequest.deleteMany({ where: { tripId } });
+            await tx.tripMember.deleteMany({ where: { tripId } });
+
+            // 4) Маршрутні точки (це ваш актуальний FK-краш)
+            await tx.waypoint.deleteMany({ where: { tripId } });
+
+            // 5) Тепер можна видаляти сам Trip
+            await tx.trip.delete({ where: { id: tripId } });
+        });
 
         return { ok: true };
     }
