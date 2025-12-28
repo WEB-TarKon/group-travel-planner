@@ -3,6 +3,11 @@ import { TripsService } from "./trips.service";
 import { SaveWaypointsDto } from "./dto/save-waypoints.dto";
 import { JwtGuard } from "../auth/jwt.guard";
 import { AuthGuard } from '@nestjs/passport';
+import { UseInterceptors, UploadedFile } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { diskStorage } from "multer";
+import { extname } from "path";
+import { ReportPaymentDto } from "./dto/report-payment.dto";
 
 @UseGuards(JwtGuard)
 @Controller("trips")
@@ -98,8 +103,25 @@ export class TripsController {
     }
 
     @Post(":id/payments/report")
-    reportPayment(@Req() req: any, @Param("id") id: string) {
-        return this.trips.reportPayment(id, req.user.id);
+    @UseInterceptors(
+        FileInterceptor("file", {
+            storage: diskStorage({
+                destination: "./uploads",
+                filename: (req, file, cb) => {
+                    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+                    cb(null, `${unique}${extname(file.originalname)}`);
+                },
+            }),
+            limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+        })
+    )
+    reportPayment(
+        @Req() req: any,
+        @Param("id") id: string,
+        @UploadedFile() file: Express.Multer.File,
+        @Body() body: ReportPaymentDto
+    ) {
+        return this.trips.reportPayment(id, req.user.id, file, body?.note);
     }
 
     @Post(":id/payments/:userId/confirm")
@@ -108,12 +130,22 @@ export class TripsController {
     }
 
     @Post(":id/payments/:userId/reject")
-    rejectPay(@Req() req: any, @Param("id") id: string, @Param("userId") userId: string) {
-        return this.trips.rejectPayment(id, req.user.id, userId);
+    rejectPayment(
+        @Req() req: any,
+        @Param("id") id: string,
+        @Param("userId") userId: string,
+        @Body() body: { reason?: string }
+    ) {
+        return this.trips.rejectPayment(id, req.user.id, userId, body?.reason);
     }
 
     @Post(":id/finance/enforce-deadline")
     enforceDeadline(@Req() req: any, @Param("id") id: string) {
         return this.trips.enforceDeadline(id, req.user.id);
+    }
+
+    @Get(":id/payments/pending")
+    pendingPayments(@Req() req: any, @Param("id") id: string) {
+        return this.trips.listPendingPayments(id, req.user.id);
     }
 }
