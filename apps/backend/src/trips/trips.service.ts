@@ -102,11 +102,29 @@ export class TripsService {
             throw new Error("Організатор вже є учасником своєї подорожі.");
         }
 
-        return this.prisma.joinRequest.upsert({
+        const req = await this.prisma.joinRequest.upsert({
             where: { tripId_userId: { tripId, userId } },
             update: { status: "PENDING" },
             create: { tripId, userId, status: "PENDING" },
         });
+
+        const who = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true, email: true },
+        });
+
+        const whoText = who?.name?.trim()
+            ? `${who.name} (${who.email})`
+            : `${who?.email ?? userId}`;
+
+        await this.notifications.create(trip.organizerId, {
+            type: NotificationType.JOIN_REQUEST_RECEIVED,
+            tripId,
+            title: "Нова заявка на участь",
+            message: `Користувач ${whoText} подав заявку на участь у подорожі "${trip.title}".`,
+        });
+
+        return req;
     }
 
     async listJoinRequestsForTrip(tripId: string, organizerId: string) {
@@ -150,6 +168,14 @@ export class TripsService {
                 create: { tripId, userId: req.userId, amountUah, status: "PENDING" },
             });
         }
+
+        await this.notifications.create(req.userId, {
+            type: NotificationType.JOIN_REQUEST_APPROVED,
+            tripId,
+            title: "Заявку прийнято ✅",
+            message: `Організатор прийняв вашу заявку. Ви тепер учасник подорожі "${trip.title}".`,
+        });
+
         return { ok: true };
     }
 
@@ -164,6 +190,13 @@ export class TripsService {
         await this.prisma.joinRequest.update({
             where: { id: requestId },
             data: { status: "REJECTED" },
+        });
+
+        await this.notifications.create(req.userId, {
+            type: NotificationType.JOIN_REQUEST_REJECTED,
+            tripId,
+            title: "Заявку відхилено",
+            message: `Організатор відхилив вашу заявку на подорож "${trip.title}".`,
         });
 
         return { ok: true };
@@ -441,6 +474,19 @@ export class TripsService {
 
         if (payment.status === "CONFIRMED") return payment;
 
+        const u = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true, email: true },
+        });
+        const uText = u?.name?.trim() ? `${u.name} (${u.email})` : `${u?.email ?? userId}`;
+
+        await this.notifications.create(trip.organizerId, {
+            type: NotificationType.PAYMENT_REPORTED,
+            tripId,
+            title: "Учасник повідомив про оплату",
+            message: `Учасник ${uText} позначив оплату як виконану. Перевірте платіж у подорожі "${trip.title}".`,
+        });
+
         return this.prisma.payment.update({
             where: { tripId_userId: { tripId, userId } },
             data: { status: "REPORTED", reportedAt: new Date() },
@@ -453,6 +499,13 @@ export class TripsService {
         if (!trip) throw new NotFoundException("Trip not found");
         if (trip.organizerId !== organizerId) throw new ForbiddenException("Only organizer");
 
+        await this.notifications.create(userId, {
+            type: NotificationType.PAYMENT_CONFIRMED,
+            tripId,
+            title: "Оплату підтверджено ✅",
+            message: `Організатор підтвердив вашу оплату у подорожі "${trip.title}".`,
+        });
+
         return this.prisma.payment.update({
             where: { tripId_userId: { tripId, userId } },
             data: { status: "CONFIRMED" },
@@ -464,6 +517,13 @@ export class TripsService {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new NotFoundException("Trip not found");
         if (trip.organizerId !== organizerId) throw new ForbiddenException("Only organizer");
+
+        await this.notifications.create(userId, {
+            type: NotificationType.PAYMENT_REJECTED,
+            tripId,
+            title: "Оплату відхилено",
+            message: `Організатор відхилив вашу оплату у подорожі "${trip.title}". Завантажте коректний чек/скрін і спробуйте ще раз.`,
+        });
 
         return this.prisma.payment.update({
             where: { tripId_userId: { tripId, userId } },
