@@ -32,6 +32,11 @@ export class MemoriesController {
         return this.s.list(tripId, req.user.id);
     }
 
+    @Get("/my-done")
+    myDone(@Req() req: any, @Param("tripId") tripId: string) {
+        return this.s.myDone(tripId, req.user.id);
+    }
+
     @Post()
     @UseInterceptors(
         FileInterceptor("file", {

@@ -129,6 +129,7 @@ export default function TripPage() {
     const [memType, setMemType] = useState<"TEXT"|"PHOTO"|"VIDEO"|"AUDIO">("TEXT");
     const [memFile, setMemFile] = useState<File | null>(null);
     const [doneStatus, setDoneStatus] = useState<any[]>([]);
+    const [myDoneAt, setMyDoneAt] = useState<string | null>(null);
 
     const [members, setMembers] = useState<MemberView[]>([]);
 
@@ -168,6 +169,7 @@ export default function TripPage() {
             await loadMembers();
             await loadFinance();
             await loadMemories();
+            await loadMyDone();
             await loadDoneStatus();
             const isOrganizerNow = !!(me && data && me.id === data.organizerId);
 
@@ -243,6 +245,11 @@ export default function TripPage() {
     async function markDoneMemories() {
         await apiPost(`/trips/${tripId}/memories/done`, {});
         alert("Позначено як завершено ✅");
+
+        // підтягнути РЕАЛЬНИЙ стан із сервера (щоб не було фейкового done тільки локально)
+        await loadMyDone();
+
+        // організатору: оновити список хто завершив
         await loadDoneStatus();
     }
 
@@ -254,11 +261,22 @@ export default function TripPage() {
     }
 
     async function loadDoneStatus() {
-        if (!canEditRoute) return;
         try {
             const d = await apiGet<any[]>(`/trips/${tripId}/memories/done-status`);
             setDoneStatus(d);
-        } catch {}
+        } catch {
+            // якщо ти не організатор — бек дасть Forbidden, і це ок -> просто ігноруємо
+            setDoneStatus([]);
+        }
+    }
+
+    async function loadMyDone() {
+        try {
+            const r = await apiGet<{ doneAt: string | null }>(`/trips/${tripId}/memories/my-done`);
+            setMyDoneAt(r.doneAt);
+        } catch {
+            setMyDoneAt(null);
+        }
     }
 
     async function loadPending() {
@@ -934,55 +952,67 @@ export default function TripPage() {
                         </div>
                     ) : (
                         <>
-                            {/* 2) Форма додавання спогаду */}
-                            <div style={{ display: "grid", gap: 8 }}>
-                                <label>
-                                    Тип спогаду
-                                    <select
-                                        value={memType}
-                                        onChange={(e) => setMemType(e.target.value as any)}
-                                        style={{ width: "100%" }}
-                                    >
-                                        <option value="TEXT">Текст</option>
-                                        <option value="PHOTO">Фото</option>
-                                        <option value="VIDEO">Відео</option>
-                                        <option value="AUDIO">Аудіо</option>
-                                    </select>
-                                </label>
+                            {/* 2) Форма додавання спогаду / або повідомлення що завершено */}
+                            {myDoneAt ? (
+                                <div style={{ padding: 10, border: "1px solid #ddd", borderRadius: 8, opacity: 0.9 }}>
+                                    <b>Ви завершили додавання спогадів ✅</b>
+                                    <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                                        Дата: {new Date(myDoneAt).toLocaleString()}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ display: "grid", gap: 8 }}>
+                                    <label>
+                                        Тип спогаду
+                                        <select
+                                            value={memType}
+                                            onChange={(e) => setMemType(e.target.value as any)}
+                                            style={{ width: "100%" }}
+                                        >
+                                            <option value="TEXT">Текст</option>
+                                            <option value="PHOTO">Фото</option>
+                                            <option value="VIDEO">Відео</option>
+                                            <option value="AUDIO">Аудіо</option>
+                                        </select>
+                                    </label>
 
-                                <label>
-                                    Текст (необовʼязково)
-                                    <textarea
-                                        value={memText}
-                                        onChange={(e) => setMemText(e.target.value)}
-                                        rows={3}
-                                        style={{ width: "100%" }}
-                                    />
-                                </label>
+                                    <label>
+                                        Текст {memType === "TEXT" ? "(обов’язково)" : "(необовʼязково)"}
+                                        <textarea
+                                            value={memText}
+                                            onChange={(e) => setMemText(e.target.value)}
+                                            rows={3}
+                                            style={{ width: "100%" }}
+                                        />
+                                    </label>
 
-                                <label>
-                                    Файл (необовʼязково)
-                                    <input
-                                        type="file"
-                                        accept={
-                                            memType === "PHOTO"
-                                                ? "image/*"
-                                                : memType === "VIDEO"
-                                                    ? "video/*"
-                                                    : memType === "AUDIO"
-                                                        ? "audio/*"
-                                                        : "image/*,video/*,audio/*,application/pdf"
-                                        }
-                                        onChange={(e) => setMemFile(e.target.files?.[0] || null)}
-                                    />
-                                </label>
+                                    {/* ФАЙЛ ПОКАЗУЄМО ТІЛЬКИ ЯКЩО НЕ TEXT */}
+                                    {memType !== "TEXT" && (
+                                        <label>
+                                            Файл (необовʼязково)
+                                            <input
+                                                type="file"
+                                                accept={
+                                                    memType === "PHOTO"
+                                                        ? "image/*"
+                                                        : memType === "VIDEO"
+                                                            ? "video/*"
+                                                            : memType === "AUDIO"
+                                                                ? "audio/*"
+                                                                : "image/*,video/*,audio/*,application/pdf"
+                                                }
+                                                onChange={(e) => setMemFile(e.target.files?.[0] || null)}
+                                            />
+                                        </label>
+                                    )}
 
-                                <button onClick={addMemory}>Додати спогад</button>
+                                    <button onClick={addMemory}>Додати спогад</button>
 
-                                <button onClick={markDoneMemories} style={{ marginTop: 4 }}>
-                                    Я завершив(ла) додавання спогадів
-                                </button>
-                            </div>
+                                    <button onClick={markDoneMemories} style={{ marginTop: 4 }}>
+                                        Я завершив(ла) додавання спогадів
+                                    </button>
+                                </div>
+                            )}
 
                             {/* 3) Організатору: хто завершив */}
                             {canEditRoute && (

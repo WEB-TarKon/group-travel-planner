@@ -147,4 +147,16 @@ export class MemoriesService {
 
         return { trip: { id: trip.id, title: trip.title, status: trip.status }, memories };
     }
+
+    async myDone(tripId: string, userId: string) {
+        await this.ensureMember(tripId, userId);
+
+        const row = await this.prisma.tripMemoryDone.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+            select: { doneAt: true },
+        });
+
+        return { doneAt: row?.doneAt ?? null };
+    }
+
 }
