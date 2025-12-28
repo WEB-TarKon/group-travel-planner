@@ -450,7 +450,7 @@ export class TripsService {
         };
     }
 
-    async reportPayment(tripId: string, userId: string) {
+    async reportPayment(tripId: string, userId: string, file: Express.Multer.File, note?: string) {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new NotFoundException("Trip not found");
 
@@ -467,9 +467,30 @@ export class TripsService {
             throw new BadRequestException("Payment is closed (deadline passed)");
         }
 
-        const payment = await this.prisma.payment.findUnique({
+        const proofUrl = file ? `/uploads/${file.filename}` : null;
+
+        const payment = await this.prisma.payment.upsert({
             where: { tripId_userId: { tripId, userId } },
+            update: {
+                status: "REPORTED",
+                proofUrl: proofUrl,
+                proofName: file?.originalname,
+                proofMime: file?.mimetype,
+                note: note ?? null,
+                rejectReason: null,
+            },
+            create: {
+                tripId,
+                userId,
+                amountUah: 0,
+                status: "REPORTED",
+                proofUrl: proofUrl,
+                proofName: file?.originalname,
+                proofMime: file?.mimetype,
+                note: note ?? null,
+            },
         });
+
         if (!payment) throw new BadRequestException("Payment record not found");
 
         if (payment.status === "CONFIRMED") return payment;
@@ -513,7 +534,7 @@ export class TripsService {
         });
     }
 
-    async rejectPayment(tripId: string, organizerId: string, userId: string) {
+    async rejectPayment(tripId: string, organizerId: string, userId: string, reason?: string) {
         const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
         if (!trip) throw new NotFoundException("Trip not found");
         if (trip.organizerId !== organizerId) throw new ForbiddenException("Only organizer");
@@ -650,5 +671,28 @@ export class TripsService {
             status: x.status,
             payment: payMap.get(x.userId) ?? null,
         }));
+    }
+
+    async listPendingPayments(tripId: string, organizerId: string) {
+        const trip = await this.prisma.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new Error("Trip not found");
+        if (trip.organizerId !== organizerId) throw new Error("Forbidden");
+
+        return this.prisma.payment.findMany({
+            where: { tripId, status: "REPORTED" },
+            orderBy: { updatedAt: "desc" },
+            select: {
+                id: true,
+                userId: true,
+                amountUah: true,
+                status: true,
+                note: true,
+                proofUrl: true,
+                proofName: true,
+                proofMime: true,
+                updatedAt: true,
+                user: { select: { email: true, name: true } },
+            },
+        });
     }
 }

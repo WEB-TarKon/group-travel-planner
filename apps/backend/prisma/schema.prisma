@@ -148,6 +148,12 @@ model Payment {
 
   @@unique([tripId, userId])
   @@index([tripId, status])
+
+  proofUrl     String?   // /uploads/.... або S3 URL
+  proofName    String?
+  proofMime    String?
+  note         String?
+  rejectReason String?
 }
 
 enum PaymentStatus {
