@@ -92,3 +92,21 @@ export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
 
     return (await res.json()) as T;
 }
+
+export async function apiGetBlob(url: string): Promise<Blob> {
+    const token = localStorage.getItem("token");
+
+    const r = await fetch(`${API_BASE}${url}`, {
+        method: "GET",
+        headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+    });
+
+    if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        throw new Error(t || `HTTP ${r.status}`);
+    }
+
+    return await r.blob();
+}
