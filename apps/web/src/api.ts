@@ -44,15 +44,21 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     return res.json() as Promise<T>;
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
+export async function apiDelete(url: string): Promise<any> {
     const token = getToken();
-    const res = await fetch(`${API_BASE}${path}`, {
+    const r = await fetch(API_BASE + url, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
 
-    if (!res.ok) throw new Error(await parseError(res));
-    return res.json() as Promise<T>;
+    if (!r.ok) {
+        const text = await r.text();
+        throw new Error(text || "Request failed");
+    }
+
+    const ct = r.headers.get("content-type") || "";
+    if (ct.includes("application/json")) return r.json();
+    return r.text();
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
