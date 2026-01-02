@@ -94,18 +94,18 @@ export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
 }
 
 export async function apiGetBlob(url: string): Promise<Blob> {
-    const token = localStorage.getItem("token");
+    const token = getToken();
 
-    const r = await fetch(`${API_BASE}${url}`, {
+    const r = await fetch(API_BASE + url, {
         method: "GET",
         headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Authorization: token ? `Bearer ${token}` : "",
         },
     });
 
     if (!r.ok) {
-        const t = await r.text().catch(() => "");
-        throw new Error(t || `HTTP ${r.status}`);
+        const text = await r.text();
+        throw new Error(text || "Failed to download file");
     }
 
     return await r.blob();

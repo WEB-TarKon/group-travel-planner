@@ -5,6 +5,7 @@ import archiver from "archiver";
 import * as path from "path";
 import * as fs from "fs";
 import { Response } from "express";
+import PDFDocument from "pdfkit";
 
 @Injectable()
 export class MemoriesService {
@@ -108,8 +109,11 @@ export class MemoriesService {
         });
     }
 
-    async doneStatus(tripId: string, organizerId: string) {
-        await this.ensureOrganizer(tripId, organizerId);
+    async doneStatus(tripId: string, userId: string) { // Змініть назву аргументу organizerId -> userId
+        // Було: await this.ensureOrganizer(tripId, userId);
+
+        // Стало: Дозволяємо перегляд усім учасникам
+        await this.ensureMember(tripId, userId);
 
         const members = await this.prisma.tripMember.findMany({
             where: { tripId },
@@ -163,116 +167,151 @@ export class MemoriesService {
         return { doneAt: row?.doneAt ?? null };
     }
 
+    // -----------------------------------------------------------------------
+    // 1. МЕТОД ЕКСПОРТУ (ZIP + PDF + HTML)
+    // -----------------------------------------------------------------------
     async exportAlbumZip(tripId: string, userId: string, res: Response) {
-        // 1) Перевірка доступу: учасник або організатор
-        // Підлаштуй під ваші таблиці членства.
-        // Ідея: якщо не учасник/організатор => Forbidden.
+        // --- 1. Перевірка доступу ---
         const trip = await this.prisma.trip.findUnique({
             where: { id: tripId },
             select: { id: true, title: true, organizerId: true, status: true },
         });
         if (!trip) throw new Error("Trip not found");
 
-        // ⚠️ ВАЖЛИВО: тут зроби перевірку "user є учасником"
-        // Нижче універсальний варіант: або організатор, або є запис у TripMember (назву підставте вашу).
         const isOrganizer = trip.organizerId === userId;
-
         const member = await this.prisma.tripMember.findFirst({
             where: { tripId, userId },
             select: { id: true },
         });
 
-        if (!isOrganizer && !member) {
-            // як у вас прийнято: throw new ForbiddenException()
-            throw new Error("Forbidden");
-        }
+        if (!isOrganizer && !member) throw new Error("Forbidden");
 
-        // (опційно) дозволяти експорт тільки коли FINISHED
-        // if (trip.status !== "FINISHED") throw new Error("Forbidden");
-
-        // 2) Забираємо спогади
+        // --- 2. Завантаження даних ---
         const memories = await this.prisma.tripMemory.findMany({
             where: { tripId },
             orderBy: { createdAt: "asc" },
             include: { user: { select: { id: true, name: true, email: true } } },
         });
 
-        // 3) Готуємо zip stream
+        // --- 3. Налаштування ZIP ---
         const archive = archiver("zip", { zlib: { level: 9 } });
-
-        archive.on("error", (err) => {
-            try {
-                res.status(500).send(String(err));
-            } catch {}
-        });
-
+        archive.on("warning", (err) => console.warn("ARCHIVER WARNING:", err));
         archive.pipe(res);
 
-        // 4) manifest.json
-        const manifest = {
-            trip: {
-                id: trip.id,
-                title: trip.title,
-                status: trip.status,
-            },
-            exportedAt: new Date().toISOString(),
-            items: memories.map((m: any) => ({
+        // --- 4. Налаштування PDF ---
+        const doc = new PDFDocument({ margin: 50 });
+        archive.append(doc as any, { name: "album.pdf" });
+
+        const fontPath = path.join(process.cwd(), "fonts", "Roboto-Italic.ttf");
+        if (fs.existsSync(fontPath)) {
+            doc.font(fontPath);
+        } else {
+            console.warn("Шрифт не знайдено! Кирилиця може не відображатись.");
+        }
+
+        // Заголовок PDF
+        doc.fontSize(24).text(trip.title, { align: "center" });
+        doc.moveDown(2);
+
+        // --- 5. Підготовка змінних для циклу ---
+        const htmlItems: any[] = [];
+        const uploadsRoot = path.join(process.cwd(), "uploads");
+
+        // --- 6. ГОЛОВНИЙ ЦИКЛ ПО СПОГАДАХ ---
+        for (const m of memories) {
+            const authorName = m.user?.name || m.user?.email || "Учасник";
+            const dateStr = new Date(m.createdAt).toLocaleString();
+
+            // === ЧАСТИНА А: ФАЙЛИ ТА HTML ===
+            let safeFileName: string | null = null;
+            let finalFilePath: string | null = null;
+
+            if (m.fileUrl) {
+                // Очистка шляху до файлу
+                const clean = String(m.fileUrl).replace(/^https?:\/\/[^/]+/i, "");
+                const rel = clean.startsWith("/") ? clean.slice(1) : clean;
+                const relFromUploads = rel.replace(/^uploads[\\/]/, "");
+
+                finalFilePath = path.join(uploadsRoot, relFromUploads);
+                const normalized = path.normalize(finalFilePath);
+
+                // Якщо файл реально існує на диску
+                if (normalized.startsWith(path.normalize(uploadsRoot)) && fs.existsSync(normalized)) {
+                    safeFileName = m.fileName
+                        ? `${new Date(m.createdAt).toISOString().slice(0, 10)}_${m.id}_${m.fileName}`
+                        : `${new Date(m.createdAt).toISOString().slice(0, 10)}_${m.id}_${path.basename(normalized)}`;
+
+                    // Додаємо файл фізично в архів у папку files/
+                    archive.file(normalized, { name: path.join("files", safeFileName) });
+                }
+            }
+
+            // Додаємо дані в масив для генерації HTML
+            htmlItems.push({
                 id: m.id,
                 type: m.type,
                 text: m.text ?? null,
                 createdAt: m.createdAt,
-                author: {
-                    id: m.user?.id,
-                    name: m.user?.name ?? null,
-                    email: m.user?.email ?? null,
-                },
-                fileName: m.fileName ?? null,
-                fileUrl: m.fileUrl ?? null,
-            })),
-        };
+                author: { name: authorName },
+                safeFileNameInZip: safeFileName
+            });
 
-        archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
+            // === ЧАСТИНА Б: ЗАПОВНЕННЯ PDF ===
 
-        // 5) index.html (проста локальна html-сторінка)
-        const html = this.buildAlbumHtml(manifest);
-        archive.append(html, { name: "index.html" });
+            // ВАЖЛИВО: Якщо це ВІДЕО або АУДІО — пропускаємо запис у PDF повністю.
+            // (Нічого не пишемо: ні автора, ні дати, ні тексту).
+            if (m.type !== 'TEXT' && m.type !== 'PHOTO') {
+                continue;
+            }
 
-        // 6) Додаємо файли спогадів (якщо є)
-        // Очікуємо що fileUrl типу "/uploads/...."
-        const uploadsRoot = path.join(process.cwd(), "uploads");
+            // Якщо дійшли сюди, значить це TEXT або PHOTO
 
-        for (const m of memories as any[]) {
-            if (!m.fileUrl) continue;
+            // 1. Заголовок спогаду (Автор • Дата)
+            doc.fontSize(10).fillColor("grey").text(`${authorName} • ${dateStr}`);
+            doc.fontSize(12).fillColor("black");
 
-            // Захист від path traversal
-            const clean = String(m.fileUrl).replace(/^https?:\/\/[^/]+/i, ""); // якщо раптом з повним хостом
-            const rel = clean.startsWith("/") ? clean.slice(1) : clean;
+            // 2. Текст спогаду (якщо є)
+            if (m.text) {
+                doc.moveDown(0.5);
+                doc.text(m.text);
+            }
 
-            // якщо у вас зберігається "uploads/xxx" або "/uploads/xxx"
-            const relFromUploads = rel.startsWith("uploads/")
-                ? rel.slice("uploads/".length)
-                : rel.startsWith("uploads\\")
-                    ? rel.slice("uploads\\".length)
-                    : rel.startsWith("uploads") && (rel[7] === "/" || rel[7] === "\\")
-                        ? rel.slice(8)
-                        : rel.startsWith("uploads") ? rel.replace(/^uploads[\\/]/, "") : rel.replace(/^uploads[\\/]/, "");
+            // 3. Фото (якщо є і файл існує)
+            if (m.type === 'PHOTO' && finalFilePath && fs.existsSync(finalFilePath)) {
+                try {
+                    doc.moveDown(0.5);
+                    // fit: [450, 400] — щоб картинка влізла на сторінку А4
+                    doc.image(finalFilePath, { fit: [450, 400], align: 'center' });
+                } catch (e) {
+                    console.error("Не вдалося додати фото в PDF:", e);
+                }
+            }
 
-            const fileAbs = path.join(uploadsRoot, relFromUploads);
-            const normalized = path.normalize(fileAbs);
-
-            if (!normalized.startsWith(path.normalize(uploadsRoot))) continue;
-            if (!fs.existsSync(normalized)) continue;
-
-            const safeName = m.fileName
-                ? `${m.createdAt.toISOString().slice(0, 10)}_${m.id}_${m.fileName}`
-                : `${m.createdAt.toISOString().slice(0, 10)}_${m.id}_${path.basename(normalized)}`;
-
-            archive.file(normalized, { name: path.join("files", safeName) });
+            // 4. Розділова лінія
+            doc.moveDown(2);
+            doc.moveTo(50, doc.y).lineTo(550, doc.y).strokeColor("#eeeeee").stroke();
+            doc.moveDown(1);
         }
 
+        // Завершуємо PDF
+        doc.end();
+
+        // --- 7. ГЕНЕРАЦІЯ HTML ---
+        const htmlContent = this.buildAlbumHtml({
+            trip: { title: trip.title, status: trip.status },
+            // exportedAt: new Date(), // Можна передати, але ми його видалили з відображення
+            items: htmlItems
+        });
+
+        archive.append(htmlContent, { name: "index.html" });
+
+        // Фіналізація архіву
         await archive.finalize();
     }
 
+    // -----------------------------------------------------------------------
+    // 2. МЕТОД ГЕНЕРАЦІЇ HTML
+    // -----------------------------------------------------------------------
     private buildAlbumHtml(manifest: any) {
         const esc = (s: any) =>
             String(s ?? "")
@@ -283,25 +322,34 @@ export class MemoriesService {
         const rows = (manifest.items || [])
             .map((it: any) => {
                 const author = esc(it.author?.name || it.author?.email || "Учасник");
-                const date = esc(it.createdAt);
-                const text = it.text ? `<div style="margin:6px 0">${esc(it.text)}</div>` : "";
+                const date = esc(new Date(it.createdAt).toLocaleString());
+
+                // Текст спогаду
+                const text = it.text
+                    ? `<div style="margin:6px 0; white-space: pre-wrap;">${esc(it.text)}</div>`
+                    : "";
 
                 let media = "";
-                if (it.fileName) {
-                    const filePath = `files/${esc(
-                        `${it.createdAt.slice(0, 10)}_${it.id}_${it.fileName}`
-                    )}`;
-                    if (it.type === "PHOTO") media = `<img src="${filePath}" style="max-width:100%;border-radius:8px;" />`;
-                    else if (it.type === "VIDEO") media = `<video src="${filePath}" controls style="max-width:100%;border-radius:8px;"></video>`;
-                    else if (it.type === "AUDIO") media = `<audio src="${filePath}" controls></audio>`;
-                    else media = `<a href="${filePath}">Відкрити файл</a>`;
+                // Логіка відображення медіа (Фото/Відео/Аудіо)
+                if (it.safeFileNameInZip) {
+                    const filePath = `files/${esc(it.safeFileNameInZip)}`;
+
+                    if (it.type === "PHOTO") {
+                        media = `<img src="${filePath}" style="max-width:100%; border-radius:8px;" />`;
+                    } else if (it.type === "VIDEO") {
+                        media = `<video src="${filePath}" controls style="max-width:100%; border-radius:8px;"></video>`;
+                    } else if (it.type === "AUDIO") {
+                        media = `<audio src="${filePath}" controls></audio>`;
+                    } else {
+                        media = `<a href="${filePath}" target="_blank">Відкрити файл</a>`;
+                    }
                 }
 
                 return `
-                    <div style="border:1px solid #ddd;padding:12px;border-radius:10px;margin:12px 0">
-                    <div style="opacity:.75;font-size:12px">${author} • ${esc(it.type)} • ${date}</div>
-                    ${text}
-                    <div style="margin-top:8px">${media}</div>
+                    <div style="border:1px solid #ddd; padding:12px; border-radius:10px; margin:12px 0; background: #fff;">
+                        <div style="opacity:.75; font-size:12px; margin-bottom: 4px;">${author} • ${esc(it.type)} • ${date}</div>
+                        ${text}
+                        <div style="margin-top:8px">${media}</div>
                     </div>
                 `;
             }).join("\n");
@@ -312,11 +360,14 @@ export class MemoriesService {
                     <meta charset="utf-8" />
                     <meta name="viewport" content="width=device-width,initial-scale=1" />
                     <title>${esc(manifest.trip?.title || "Album")}</title>
+                    <style>
+                        body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background: #f9f9f9; color: #333; }
+                        h2 { margin-top: 0; margin-bottom: 20px; text-align: center; }
+                    </style>
                 </head>
-                <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px;max-width:900px;margin:0 auto;">
-                <h2 style="margin:0 0 6px 0;">${esc(manifest.trip?.title || "Альбом")}</h2>
-                <div style="opacity:.75;margin-bottom:16px;">Експорт: ${esc(manifest.exportedAt)}</div>
-                ${rows || `<div style="opacity:.75">Немає спогадів</div>`}
+                <body>
+                    <h2>${esc(manifest.trip?.title || "Альбом")}</h2>
+                    ${rows || `<div style="opacity:.75; text-align:center;">Немає спогадів</div>`}
                 </body>
             </html>`;
     }

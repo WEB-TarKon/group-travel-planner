@@ -137,7 +137,7 @@ export default function TripPage() {
         if (!tripId) return;
 
         try {
-            const blob = await apiGetBlob(`/trips/${tripId}/memories/export`);
+            const blob = await apiGetBlob(`/trips/${tripId}/memories/export-zip`);
             const url = URL.createObjectURL(blob);
 
             const a = document.createElement("a");
@@ -191,17 +191,20 @@ export default function TripPage() {
             await loadMemories();
             await loadMyDone();
 
+            // ПЕРЕНЕСЕНО СЮДИ (викликаємо для всіх):
+            await loadDoneStatus();
+
             const isOrganizerNow = !!(me && data && me.id === data.organizerId);
 
             if (isOrganizerNow) {
-                await loadDoneStatus();
+                // await loadDoneStatus(); <--- ЗВІДСИ ПРИБРАЛИ
                 await loadPending();
             } else {
-                setDoneStatus([]);        // важливо: без запиту на бек
+                // setDoneStatus([]); <--- ЦЕ ТЕЖ ПРИБРАТИ, не треба очищати статус
                 setPendingPayments([]);
             }
         })().catch(console.error);
-    }, [tripId]);
+    }, [tripId, me]); // 'me' має бути тут
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -284,10 +287,10 @@ export default function TripPage() {
 
     async function loadDoneStatus() {
         // якщо не організатор — навіть не звертаємось до бекенду
-        if (!canEditRoute) {
+        /*if (!canEditRoute) {
             setDoneStatus([]);
             return;
-        }
+        }*/
 
         try {
             const d = await apiGet<any[]>(`/trips/${tripId}/memories/done-status`);
@@ -501,6 +504,33 @@ export default function TripPage() {
             setError(String(e));
         }
     }
+
+    const allFinished = useMemo(() => {
+        console.log("--- ПЕРЕВІРКА СТАТУСУ ---");
+        console.log("Всього учасників (members):", members.length, members);
+
+        // Знаходимо IDs тих, хто завершив (у кого doneAt не null)
+        const finishedMembers = doneStatus.filter(d => d.doneAt);
+        const doneSet = new Set(finishedMembers.map(d => d.userId));
+
+        console.log("Завершили (doneStatus):", finishedMembers.length, finishedMembers);
+        console.log("IDs, що завершили:", Array.from(doneSet));
+
+        if (members.length === 0) {
+            console.log("-> Немає учасників. Результат: false");
+            return false;
+        }
+
+        // Перевіряємо кожного
+        const result = members.every(m => {
+            const isDone = doneSet.has(m.user.id);
+            console.log(`Учасник ${m.user.name || m.user.email} (id: ${m.user.id}) -> ${isDone ? "ЗАВЕРШИВ" : "НЕ ЗАВЕРШИВ"}`);
+            return isDone;
+        });
+
+        console.log("-> ЗАГАЛЬНИЙ РЕЗУЛЬТАТ (allFinished):", result);
+        return result;
+    }, [members, doneStatus]);
 
     async function loadFinance() {
         try {
@@ -1064,10 +1094,17 @@ export default function TripPage() {
                                 </div>
                             )}
 
+                            {/* КНОПКА ЕКСПОРТУ */}
                             <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                                <button onClick={downloadAlbumZip}>
-                                    Експортувати альбом (ZIP)
-                                </button>
+                                {allFinished ? (
+                                    <button onClick={downloadAlbumZip}>
+                                        Експортувати альбом (ZIP)
+                                    </button>
+                                ) : (
+                                    <div style={{ opacity: 0.7, fontSize: 13, textAlign: "center", border: "1px dashed #ccc", padding: 8, borderRadius: 4 }}>
+                                        Експорт стане доступним, коли всі учасники завершать додавання спогадів.
+                                    </div>
+                                )}
                             </div>
 
                             {/* 4) Список спогадів */}

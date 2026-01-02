@@ -60,6 +60,8 @@ model TripMember {
   trip Trip @relation(fields: [tripId], references: [id])
   user User @relation(fields: [userId], references: [id])
 
+  finishedMemories Boolean @default(false)
+
   @@unique([tripId, userId])
 }
 
