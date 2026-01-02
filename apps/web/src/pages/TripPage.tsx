@@ -1,6 +1,6 @@
 import {MapContainer, Marker, Popup, TileLayer, useMapEvents, Polyline} from "react-leaflet";
 import {useNavigate, useParams} from "react-router-dom";
-import {apiDelete, apiGet, apiPost, apiPostForm} from "../api";
+import { apiDelete, apiGet, apiPost, apiPostForm, apiGetBlob } from "../api";
 import {useEffect, useMemo, useRef, useState} from "react";
 import type {Map as LeafletMap} from "leaflet";
 import {useMe} from "../useMe";
@@ -132,6 +132,26 @@ export default function TripPage() {
     const [myDoneAt, setMyDoneAt] = useState<string | null>(null);
 
     const [members, setMembers] = useState<MemberView[]>([]);
+
+    async function downloadAlbumZip() {
+        if (!tripId) return;
+
+        try {
+            const blob = await apiGetBlob(`/trips/${tripId}/memories/export`);
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `trip_${tripId}_album.zip`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            URL.revokeObjectURL(url);
+        } catch (e: any) {
+            setError(e?.message || "Не вдалося експортувати альбом");
+        }
+    }
 
     const mapRef = useRef<LeafletMap | null>(null);
 
@@ -1044,6 +1064,12 @@ export default function TripPage() {
                                 </div>
                             )}
 
+                            <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                                <button onClick={downloadAlbumZip}>
+                                    Експортувати альбом (ZIP)
+                                </button>
+                            </div>
+
                             {/* 4) Список спогадів */}
                             <div style={{ marginTop: 12 }}>
                                 <b>Спогади</b>
@@ -1065,10 +1091,32 @@ export default function TripPage() {
                                                     {m.text && <div style={{ marginTop: 4 }}>{m.text}</div>}
 
                                                     {m.fileUrl && (
-                                                        <div style={{ marginTop: 4 }}>
-                                                            <a href={`http://localhost:3000${m.fileUrl}`} target="_blank" rel="noreferrer">
-                                                                Відкрити файл: {m.fileName || m.fileUrl}
-                                                            </a>
+                                                        <div style={{ marginTop: 8 }}>
+                                                            {m.type === "PHOTO" ? (
+                                                                <div>
+                                                                    <img
+                                                                        src={`http://localhost:3000${m.fileUrl}`}
+                                                                        alt={m.fileName || "photo"}
+                                                                        style={{ width: "100%", borderRadius: 10, border: "1px solid #ddd" }}
+                                                                    />
+                                                                </div>
+                                                            ) : m.type === "VIDEO" ? (
+                                                                <video
+                                                                    src={`http://localhost:3000${m.fileUrl}`}
+                                                                    controls
+                                                                    style={{ width: "100%", borderRadius: 10, border: "1px solid #ddd" }}
+                                                                />
+                                                            ) : m.type === "AUDIO" ? (
+                                                                <audio
+                                                                    src={`http://localhost:3000${m.fileUrl}`}
+                                                                    controls
+                                                                    style={{ width: "100%" }}
+                                                                />
+                                                            ) : (
+                                                                <a href={`http://localhost:3000${m.fileUrl}`} target="_blank" rel="noreferrer">
+                                                                    Відкрити файл: {m.fileName || m.fileUrl}
+                                                                </a>
+                                                            )}
                                                         </div>
                                                     )}
 
