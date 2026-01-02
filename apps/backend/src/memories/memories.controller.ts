@@ -16,6 +16,8 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path";
 import { MemoryType } from "@prisma/client";
+import { Res } from "@nestjs/common";
+import type { Response } from "express";
 
 @UseGuards(JwtGuard)
 @Controller("trips/:tripId/memories")
@@ -83,7 +85,17 @@ export class MemoriesController {
     }
 
     @Get("/export")
-    exportJson(@Req() req: any, @Param("tripId") tripId: string) {
-        return this.s.exportJson(tripId, req.user.id);
+    async exportZip(
+        @Req() req: any,
+        @Param("tripId") tripId: string,
+        @Res() res: Response
+    ) {
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="trip_${tripId}_album.zip"`
+        );
+
+        await this.s.exportAlbumZip(tripId, req.user.id, res);
     }
 }
