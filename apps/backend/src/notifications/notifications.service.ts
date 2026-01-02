@@ -1,13 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import { NotificationType } from "@prisma/client";
+import { TelegramService } from "../telegram/telegram.service";
 
 @Injectable()
 export class NotificationsService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private prisma: PrismaService, private tg: TelegramService) {}
 
-    create(userId: string, data: { type: NotificationType; title: string; message: string; tripId?: string | null }) {
-        return this.prisma.notification.create({
+    async create(userId: string, data: { type: NotificationType; title: string; message: string; tripId?: string | null }) {
+        const n = await this.prisma.notification.create({
             data: {
                 userId,
                 tripId: data.tripId ?? null,
@@ -16,6 +17,11 @@ export class NotificationsService {
                 message: data.message,
             },
         });
+
+        // Telegram дублювання (якщо підключено)
+        await this.tg.sendToUser(userId, `🔔 ${data.title}\n${data.message}`);
+
+        return n;
     }
 
     list(userId: string) {
