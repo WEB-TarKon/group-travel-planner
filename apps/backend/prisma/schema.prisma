@@ -25,6 +25,9 @@ model User {
 
   tripMemories     TripMemory[]
   tripMemoriesDone TripMemoryDone[]
+
+  telegramChatId String? @unique
+  telegramLinkCode String? @unique
 }
 
 model Trip {
