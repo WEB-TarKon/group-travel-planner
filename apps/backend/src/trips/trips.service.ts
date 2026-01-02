@@ -709,4 +709,166 @@ export class TripsService {
             },
         });
     }
+
+    private async assertMemberActive(tripId: string, userId: string) {
+        const m = await this.prisma.tripMember.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+        });
+        if (!m || m.status !== "ACTIVE") {
+            throw new ForbiddenException("Not a trip member");
+        }
+        return m;
+    }
+
+    private async assertOrganizer(tripId: string, userId: string) {
+        const t = await this.prisma.trip.findUnique({
+            where: { id: tripId },
+            select: { organizerId: true, title: true },
+        });
+        if (!t) throw new NotFoundException("Trip not found");
+        if (t.organizerId !== userId) throw new ForbiddenException("Only organizer");
+        return t;
+    }
+
+    private async recalcUserPaymentIfPending(tripId: string, userId: string) {
+        const finance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
+        if (!finance) return;
+
+        const choices = await this.prisma.foodChoice.findMany({
+            where: { tripId, userId },
+            include: { item: { select: { priceUah: true } } },
+        });
+        const foodTotal = choices.reduce((acc, c) => acc + (c.item?.priceUah || 0), 0);
+
+        const due = finance.baseAmountUah + finance.depositUah + foodTotal;
+
+        // Оновлюємо Payment.amountUah тільки якщо PENDING
+        const p = await this.prisma.payment.findUnique({
+            where: { tripId_userId: { tripId, userId } },
+        });
+
+        if (p && p.status === "PENDING") {
+            await this.prisma.payment.update({
+                where: { tripId_userId: { tripId, userId } },
+                data: { amountUah: due },
+            });
+        }
+    }
+
+    async listFoodItems(tripId: string, userId: string) {
+        await this.assertMemberActive(tripId, userId);
+        return this.prisma.foodItem.findMany({
+            where: { tripId },
+            orderBy: { createdAt: "asc" },
+        });
+    }
+
+    async addFoodItem(tripId: string, userId: string, body: { title: string; priceUah: number }) {
+        await this.assertOrganizer(tripId, userId);
+
+        const title = (body.title || "").trim();
+        const priceUah = Number(body.priceUah);
+
+        if (!title) throw new BadRequestException("title required");
+        if (!Number.isFinite(priceUah) || priceUah <= 0) throw new BadRequestException("priceUah must be > 0");
+
+        return this.prisma.foodItem.create({
+            data: { tripId, title, priceUah: Math.round(priceUah) },
+        });
+    }
+
+    async deleteFoodItem(tripId: string, userId: string, itemId: string) {
+        await this.assertOrganizer(tripId, userId);
+
+        const item = await this.prisma.foodItem.findUnique({ where: { id: itemId } });
+        if (!item || item.tripId !== tripId) throw new NotFoundException("Item not found");
+
+        await this.prisma.foodItem.delete({ where: { id: itemId } });
+        return { ok: true };
+    }
+
+    async setMyFoodSelection(tripId: string, userId: string, body: { itemIds: string[] }) {
+        await this.assertMemberActive(tripId, userId);
+
+        const itemIds = Array.isArray(body.itemIds) ? body.itemIds : [];
+        // Забираємо дублікати
+        const uniq = Array.from(new Set(itemIds));
+
+        // Перевіримо, що всі itemIds належать цьому trip
+        const items = await this.prisma.foodItem.findMany({
+            where: { tripId, id: { in: uniq } },
+            select: { id: true },
+        });
+        if (items.length !== uniq.length) throw new BadRequestException("Some items not found for this trip");
+
+        await this.prisma.foodChoice.deleteMany({ where: { tripId, userId } });
+
+        if (uniq.length > 0) {
+            await this.prisma.foodChoice.createMany({
+                data: uniq.map((id) => ({ tripId, userId, itemId: id })),
+            });
+        }
+
+        await this.recalcUserPaymentIfPending(tripId, userId);
+
+        return { ok: true };
+    }
+
+    async getMyFoodSelection(tripId: string, userId: string) {
+        await this.assertMemberActive(tripId, userId);
+        const rows = await this.prisma.foodChoice.findMany({
+            where: { tripId, userId },
+            select: { itemId: true },
+        });
+        return { itemIds: rows.map((r) => r.itemId) };
+    }
+
+    async foodSummary(tripId: string, userId: string) {
+        await this.assertOrganizer(tripId, userId);
+
+        const members = await this.prisma.tripMember.findMany({
+            where: { tripId, status: "ACTIVE" },
+            include: { user: { select: { id: true, name: true, email: true } } },
+            orderBy: { role: "asc" },
+        });
+
+        const finance = await this.prisma.tripFinance.findUnique({ where: { tripId } });
+
+        const items = await this.prisma.foodItem.findMany({ where: { tripId } });
+        const priceById = new Map(items.map((i) => [i.id, i.priceUah]));
+
+        const choices = await this.prisma.foodChoice.findMany({
+            where: { tripId },
+            select: { userId: true, itemId: true },
+        });
+
+        const map = new Map<string, string[]>();
+        for (const c of choices) {
+            const arr = map.get(c.userId) || [];
+            arr.push(c.itemId);
+            map.set(c.userId, arr);
+        }
+
+        const result = members.map((m) => {
+            const ids = map.get(m.userId) || [];
+            const foodTotal = ids.reduce((acc, id) => acc + (priceById.get(id) || 0), 0);
+            const base = finance?.baseAmountUah || 0;
+            const dep = finance?.depositUah || 0;
+            const due = base + dep + foodTotal;
+
+            return {
+                userId: m.userId,
+                name: m.user.name,
+                email: m.user.email,
+                role: m.role,
+                foodItemIds: ids,
+                foodTotal,
+                baseAmountUah: base,
+                depositUah: dep,
+                totalDueUah: due,
+            };
+        });
+
+        return result;
+    }
 }
