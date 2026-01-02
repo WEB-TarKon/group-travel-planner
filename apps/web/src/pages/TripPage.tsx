@@ -47,6 +47,21 @@ type MemberView = {
     payment: { status: string; amountUah: number } | null;
 };
 
+type FoodItem = { id: string; title: string; priceUah: number };
+type FoodSelection = { itemIds: string[] };
+
+type FoodSummaryRow = {
+    userId: string;
+    name: string | null;
+    email: string;
+    role: string;
+    foodItemIds: string[];
+    foodTotal: number;
+    baseAmountUah: number;
+    depositUah: number;
+    totalDueUah: number;
+};
+
 function ClickToAdd({onAdd}: { onAdd: (lat: number, lng: number) => void }) {
     useMapEvents({
         click(e) {
@@ -133,6 +148,35 @@ export default function TripPage() {
 
     const [members, setMembers] = useState<MemberView[]>([]);
 
+    const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
+    const [foodSelectedIds, setFoodSelectedIds] = useState<string[]>([]);
+    const [foodSummary, setFoodSummary] = useState<FoodSummaryRow[]>([]);
+
+    const [foodTitle, setFoodTitle] = useState("");
+    const [foodPrice, setFoodPrice] = useState<number>(0);
+
+// у тебе фінанси лежать в financeView.finance
+    const finance = financeView?.finance ?? null;
+
+    async function loadFood() {
+
+        if (!tripId) return;
+
+        const items = await apiGet<FoodItem[]>(`/trips/${tripId}/food/items`);
+        setFoodItems(items);
+
+        const sel = await apiGet<FoodSelection>(`/trips/${tripId}/food/selection`);
+        setFoodSelectedIds(sel.itemIds || []);
+
+        // summary тільки організатору (якщо у вас є canEditRoute/role — використайте ваш прапор)
+        if (isOrganizer) {
+            const s = await apiGet<FoodSummaryRow[]>(`/trips/${tripId}/food/summary`);
+            setFoodSummary(s);
+        } else {
+            setFoodSummary([]);
+        }
+    }
+
     async function downloadAlbumZip() {
         if (!tripId) return;
 
@@ -156,6 +200,8 @@ export default function TripPage() {
     const mapRef = useRef<LeafletMap | null>(null);
 
     const canEditRoute = !!(me && trip && me.id === trip.organizerId);
+
+    const isOrganizer = canEditRoute;
 
     const center: [number, number] = useMemo(() => {
         if (waypoints.length > 0) return [waypoints[0].lat, waypoints[0].lng];
@@ -190,6 +236,7 @@ export default function TripPage() {
             await loadFinance();
             await loadMemories();
             await loadMyDone();
+            await loadFood();
 
             // ПЕРЕНЕСЕНО СЮДИ (викликаємо для всіх):
             await loadDoneStatus();
@@ -236,6 +283,34 @@ export default function TripPage() {
 
         return () => clearInterval(t);
     }, [tripId, canEditRoute]);
+
+    async function toggleFood(id: string) {
+        const next = foodSelectedIds.includes(id)
+            ? foodSelectedIds.filter((x) => x !== id)
+            : [...foodSelectedIds, id];
+
+        setFoodSelectedIds(next); // оптимістично
+
+        await apiPost(`/trips/${tripId}/food/selection`, { itemIds: next });
+
+        // підтягнемо summary організатору (якщо ви організатор тестуєте)
+        if (isOrganizer) {
+            const s = await apiGet<FoodSummaryRow[]>(`/trips/${tripId}/food/summary`);
+            setFoodSummary(s);
+        }
+    }
+
+    async function addFoodItem() {
+        await apiPost(`/trips/${tripId}/food/items`, { title: foodTitle, priceUah: foodPrice });
+        setFoodTitle("");
+        setFoodPrice(0);
+        await loadFood();
+    }
+
+    async function deleteFoodItem(itemId: string) {
+        await apiDelete(`/trips/${tripId}/food/items/${itemId}`);
+        await loadFood();
+    }
 
     async function finishTrip() {
         if (!canEditRoute) return;
@@ -577,6 +652,15 @@ export default function TripPage() {
 
     if (!trip) return <div style={{padding: 16}}>Завантаження…</div>;
 
+    // === FOOD computed ===
+    const foodPriceById = new Map(foodItems.map((i) => [i.id, i.priceUah]));
+    const foodTitleById = new Map(foodItems.map((i) => [i.id, i.title]));
+
+    const myFoodTotal = foodSelectedIds.reduce((acc, id) => acc + (foodPriceById.get(id) || 0), 0);
+    const base = finance?.baseAmountUah ?? 0;
+    const dep = finance?.depositUah ?? 0;
+    const myTotalDue = base + dep + myFoodTotal;
+
     return (
         <div style={{position: "fixed", inset: 0, display: "flex"}}>
             <div
@@ -726,6 +810,221 @@ export default function TripPage() {
                         </ul>
                     </section>
                 )}
+
+                {/* =========================
+    FOOD PLANNING SECTION
+========================= */}
+                <div style={{ marginTop: 18, padding: 14, border: "1px solid #3a3a3a", borderRadius: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <h3 style={{ margin: 0 }}>🍽️ Харчування</h3>
+
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                            <button onClick={loadFood}>Оновити</button>
+
+                            <div style={{ opacity: 0.9 }}>
+                                <b>Ваша сума:</b>{" "}
+                                {base} (база) + {dep} (завдаток) + {myFoodTotal} (їжа) ={" "}
+                                <b>{myTotalDue} грн</b>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ marginTop: 10, opacity: 0.85 }}>
+                        Оберіть, що ви будете їсти — система автоматично порахує вашу частину за їжу і додасть до базової суми подорожі.
+                    </div>
+
+                    {/* ORGANIZER: add food items */}
+                    {isOrganizer && (
+                        <div style={{ marginTop: 14, padding: 12, border: "1px dashed #777", borderRadius: 12 }}>
+                            <h4 style={{ marginTop: 0 }}>Організатор: список позицій</h4>
+
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                                <input
+                                    value={foodTitle}
+                                    onChange={(e) => setFoodTitle(e.target.value)}
+                                    placeholder="Напр. М’ясо"
+                                    style={{ padding: 8, borderRadius: 10, border: "1px solid #666", minWidth: 220 }}
+                                />
+
+                                <input
+                                    type="number"
+                                    value={foodPrice}
+                                    onChange={(e) => setFoodPrice(Number(e.target.value))}
+                                    placeholder="Ціна, грн"
+                                    style={{ padding: 8, borderRadius: 10, border: "1px solid #666", width: 140 }}
+                                />
+
+                                <button
+                                    onClick={addFoodItem}
+                                    disabled={!foodTitle.trim() || !Number.isFinite(foodPrice) || foodPrice <= 0}
+                                >
+                                    Додати позицію
+                                </button>
+                            </div>
+
+                            {/* Items list with delete */}
+                            <div style={{ marginTop: 12 }}>
+                                {foodItems.length === 0 ? (
+                                    <div style={{ opacity: 0.8 }}>Поки що немає позицій. Додайте перші.</div>
+                                ) : (
+                                    <div style={{ display: "grid", gap: 8 }}>
+                                        {foodItems.map((it) => (
+                                            <div
+                                                key={it.id}
+                                                style={{
+                                                    display: "flex",
+                                                    justifyContent: "space-between",
+                                                    gap: 10,
+                                                    alignItems: "center",
+                                                    padding: 10,
+                                                    borderRadius: 12,
+                                                    border: "1px solid #4a4a4a",
+                                                }}
+                                            >
+                                                <div>
+                                                    <b>{it.title}</b> — {it.priceUah} грн
+                                                </div>
+
+                                                <button onClick={() => deleteFoodItem(it.id)} title="Видалити позицію">
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ marginTop: 10, opacity: 0.8 }}>
+                                ⚠️ Після зміни списку позицій учасникам бажано натиснути “Оновити”, щоб підтягнути актуальні дані.
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MEMBER: checkboxes */}
+                    <div style={{ marginTop: 14, padding: 12, border: "1px solid #4a4a4a", borderRadius: 12 }}>
+                        <h4 style={{ marginTop: 0 }}>Ваш вибір</h4>
+
+                        {foodItems.length === 0 ? (
+                            <div style={{ opacity: 0.8 }}>
+                                Організатор ще не додав позиції харчування.
+                            </div>
+                        ) : (
+                            <div style={{ display: "grid", gap: 8 }}>
+                                {foodItems.map((it) => {
+                                    const checked = foodSelectedIds.includes(it.id);
+                                    return (
+                                        <label
+                                            key={it.id}
+                                            style={{
+                                                display: "flex",
+                                                gap: 10,
+                                                alignItems: "center",
+                                                padding: 10,
+                                                borderRadius: 12,
+                                                border: "1px solid #4a4a4a",
+                                                cursor: "pointer",
+                                                userSelect: "none",
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => toggleFood(it.id)}
+                                            />
+                                            <span style={{ flex: 1 }}>
+                <b>{it.title}</b> — {it.priceUah} грн
+              </span>
+                                            <span style={{ opacity: 0.85 }}>{checked ? "✅ обрано" : ""}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        <div style={{ marginTop: 10 }}>
+                            <div style={{ opacity: 0.9 }}>
+                                <b>Підсумок для вас:</b>{" "}
+                                {base} + {dep} + {myFoodTotal} = <b>{myTotalDue} грн</b>
+                            </div>
+
+                            <div style={{ marginTop: 6, opacity: 0.8 }}>
+                                Якщо у вас статус оплати ще <b>PENDING</b>, то після зміни харчування сума до оплати автоматично оновиться.
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ORGANIZER: summary */}
+                    {isOrganizer && (
+                        <div style={{ marginTop: 14, padding: 12, border: "1px solid #4a4a4a", borderRadius: 12 }}>
+                            <h4 style={{ marginTop: 0 }}>Організатор: підсумок по учасниках</h4>
+
+                            {foodSummary.length === 0 ? (
+                                <div style={{ opacity: 0.8 }}>Немає даних для підсумку (або ще ніхто нічого не обрав).</div>
+                            ) : (
+                                <div style={{ overflowX: "auto" }}>
+                                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+                                        <thead>
+                                        <tr style={{ textAlign: "left" }}>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>Учасник</th>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>Роль</th>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>Вибір</th>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>Їжа, грн</th>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>База</th>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>Завдаток</th>
+                                            <th style={{ borderBottom: "1px solid #666", padding: 8 }}>Разом, грн</th>
+                                        </tr>
+                                        </thead>
+
+                                        <tbody>
+                                        {foodSummary.map((r) => {
+                                            const chosenTitles = (r.foodItemIds || [])
+                                                .map((id) => foodTitleById.get(id) || id)
+                                                .join(", ");
+
+                                            return (
+                                                <tr key={r.userId}>
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        <div><b>{r.name || r.email}</b></div>
+                                                        <div style={{ opacity: 0.8, fontSize: 12 }}>{r.email}</div>
+                                                    </td>
+
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        {r.role}
+                                                    </td>
+
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        {chosenTitles || <span style={{ opacity: 0.75 }}>нічого не обрано</span>}
+                                                    </td>
+
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        <b>{r.foodTotal}</b>
+                                                    </td>
+
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        {r.baseAmountUah}
+                                                    </td>
+
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        {r.depositUah}
+                                                    </td>
+
+                                                    <td style={{ borderBottom: "1px solid #444", padding: 8 }}>
+                                                        <b>{r.totalDueUah}</b>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            <div style={{ marginTop: 10, opacity: 0.8 }}>
+                                Підсумок показує, хто що обрав і скільки має заплатити загалом (база + завдаток + їжа).
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 <hr style={{margin: "12px 0"}}/>
                 <h4>Оплата / фінанси</h4>
