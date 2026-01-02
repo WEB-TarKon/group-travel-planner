@@ -15,16 +15,20 @@ export default function TripsPage() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
-    const [unread, setUnread] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(0);
 
     async function loadUnread() {
         try {
-            const data = await apiGet<{ count: number }>("/notifications/unread-count");
-            setUnread(data.count);
-        } catch {
-            // якщо бек ще не оновлений — просто не валимо UI
-        }
+            const r = await apiGet<{ count: number }>("/notifications/unread-count");
+            setUnreadCount(r.count);
+        } catch {}
     }
+
+    useEffect(() => {
+        loadUnread();
+        const t = setInterval(loadUnread, 25000);
+        return () => clearInterval(t);
+    }, []);
 
     async function load() {
         setError(null);
@@ -84,9 +88,25 @@ export default function TripsPage() {
 
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <Link to="/profile">Профіль</Link>
-                    <button onClick={() => navigate("/notifications")}>
-                        Сповіщення {unread > 0 ? `(${unread})` : ""}
-                    </button>
+                    <Link to="/notifications" style={{ position: "relative", padding: "6px 10px" }}>
+                        🔔
+                        {unreadCount > 0 && (
+                            <span
+                                style={{
+                                    position: "absolute",
+                                    top: -4,
+                                    right: -4,
+                                    fontSize: 12,
+                                    padding: "2px 6px",
+                                    borderRadius: 999,
+                                    background: "crimson",
+                                    color: "white",
+                                }}
+                            >
+      {unreadCount}
+    </span>
+                        )}
+                    </Link>
 
 
                     <button onClick={logout}>Вийти</button>
