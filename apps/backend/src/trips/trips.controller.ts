@@ -148,4 +148,35 @@ export class TripsController {
     pendingPayments(@Req() req: any, @Param("id") id: string) {
         return this.trips.listPendingPayments(id, req.user.id);
     }
+
+    // FOOD
+    @Get(":id/food/items")
+    foodItems(@Req() req: any, @Param("id") id: string) {
+        return this.trips.listFoodItems(id, req.user.id);
+    }
+
+    @Post(":id/food/items")
+    addFoodItem(@Req() req: any, @Param("id") id: string, @Body() body: { title: string; priceUah: number }) {
+        return this.trips.addFoodItem(id, req.user.id, body);
+    }
+
+    @Delete(":id/food/items/:itemId")
+    deleteFoodItem(@Req() req: any, @Param("id") id: string, @Param("itemId") itemId: string) {
+        return this.trips.deleteFoodItem(id, req.user.id, itemId);
+    }
+
+    @Get(":id/food/selection")
+    myFoodSelection(@Req() req: any, @Param("id") id: string) {
+        return this.trips.getMyFoodSelection(id, req.user.id);
+    }
+
+    @Post(":id/food/selection")
+    setMyFoodSelection(@Req() req: any, @Param("id") id: string, @Body() body: { itemIds: string[] }) {
+        return this.trips.setMyFoodSelection(id, req.user.id, body);
+    }
+
+    @Get(":id/food/summary")
+    foodSummary(@Req() req: any, @Param("id") id: string) {
+        return this.trips.foodSummary(id, req.user.id);
+    }
 }

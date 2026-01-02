@@ -26,8 +26,10 @@ model User {
   tripMemories     TripMemory[]
   tripMemoriesDone TripMemoryDone[]
 
-  telegramChatId String? @unique
+  telegramChatId   String? @unique
   telegramLinkCode String? @unique
+
+  foodChoices FoodChoice[]
 }
 
 model Trip {
@@ -49,6 +51,9 @@ model Trip {
 
   memories     TripMemory[]
   memoriesDone TripMemoryDone[]
+
+  foodItems   FoodItem[]
+  foodChoices FoodChoice[]
 }
 
 model TripMember {
@@ -241,4 +246,37 @@ model TripMemoryDone {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([tripId, userId])
+}
+
+model FoodItem {
+  id     String @id @default(cuid())
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  title    String
+  priceUah Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  choices FoodChoice[]
+
+  @@index([tripId])
+}
+
+model FoodChoice {
+  id     String @id @default(cuid())
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  itemId String
+  item   FoodItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([tripId, userId, itemId])
+  @@index([tripId, userId])
 }
