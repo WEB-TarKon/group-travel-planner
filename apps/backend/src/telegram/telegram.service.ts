@@ -69,4 +69,9 @@ export class TelegramService {
             this.log.warn(`Failed to send telegram message to userId=${userId}`);
         }
     }
+
+    async sendMessageToChatId(chatId: string, text: string) {
+        if (!this.bot) return;
+        await this.bot.sendMessage(chatId, text);
+    }
 }

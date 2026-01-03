@@ -8,14 +8,14 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  login     String  @unique
+  id    String @id @default(cuid())
+  email String @unique
+  login String @unique
 
-  firstName    String
-  lastName     String
+  firstName String
+  lastName  String
 
-  phone        String?  @unique
+  phone            String? @unique
   telegramUsername String? @unique
 
   name         String?
@@ -40,17 +40,21 @@ model User {
   foodChoices FoodChoice[]
 
   passwordResetTokens PasswordResetToken[]
+
+  sentMessages   TripChatMessage[]
+  chatMentions   TripChatMention[]
+  chatReadStates TripChatReadState[]
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   userId String
-  user   User @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
 
   @@index([userId, expiresAt])
 }
@@ -75,8 +79,11 @@ model Trip {
   memories     TripMemory[]
   memoriesDone TripMemoryDone[]
 
-  foodItems   FoodItem[]
-  foodChoices FoodChoice[]
+  foodItems         FoodItem[]
+  foodChoices       FoodChoice[]
+
+  chatMessages   TripChatMessage[]
+  chatReadStates TripChatReadState[]
 }
 
 model TripMember {
@@ -302,4 +309,56 @@ model FoodChoice {
 
   @@unique([tripId, userId, itemId])
   @@index([tripId, userId])
+}
+
+model TripChatMessage {
+  id       String @id @default(uuid())
+  tripId   String
+  senderId String
+
+  text     String?
+  fileUrl  String?
+  fileName String?
+  fileMime String?
+
+  replyToId String?
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+  deletedAt DateTime?
+
+  trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  replyTo TripChatMessage?  @relation("ChatReply", fields: [replyToId], references: [id])
+  replies TripChatMessage[] @relation("ChatReply")
+
+  mentions TripChatMention[]
+  reads    TripChatReadState[]
+}
+
+model TripChatMention {
+  id        String @id @default(uuid())
+  messageId String
+  userId    String
+
+  message TripChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+}
+
+model TripChatReadState {
+  tripId            String
+  userId            String
+  lastReadAt        DateTime  @default(now())
+
+  lastReadMessageId String?
+  lastReadMessage   TripChatMessage? @relation(fields: [lastReadMessageId], references: [id])
+
+  lastNotifiedAt    DateTime?
+
+  trip              Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([tripId, userId])
 }
