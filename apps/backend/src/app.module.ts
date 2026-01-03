@@ -12,6 +12,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ScheduleModule } from "@nestjs/schedule";
 import { MemoriesModule } from "./memories/memories.module";
 import {TelegramModule} from "./telegram/telegram.module";
+import { MailModule } from "./mail/mail.module";
 
 @Module({
   imports: [PrismaModule, TripsModule, AuthModule,
@@ -22,7 +23,8 @@ import {TelegramModule} from "./telegram/telegram.module";
     NotificationsModule,
     ScheduleModule.forRoot(),
     MemoriesModule,
-    TelegramModule
+    TelegramModule,
+    MailModule
   ],
   controllers: [AppController, HealthController],
   providers: [AppService, PrismaService],

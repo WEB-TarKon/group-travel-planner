@@ -1,110 +1,118 @@
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiPost } from "../api";
 
+function validatePassword(p: string) {
+    if (p.length < 8) return "Пароль має бути мінімум 8 символів.";
+    if (!/[a-z]/.test(p)) return "Пароль має містити хоча б одну малу літеру.";
+    if (!/[A-Z]/.test(p)) return "Пароль має містити хоча б одну велику літеру.";
+    if (!/[0-9]/.test(p)) return "Пароль має містити хоча б одну цифру.";
+    return null;
+}
+
 export default function ResetPasswordPage() {
-    const [params] = useSearchParams();
-    const tokenFromUrl = params.get("token") ?? "";
+    const [sp] = useSearchParams();
+    const navigate = useNavigate();
 
-    const [token, setToken] = useState(tokenFromUrl);
-    const [newPassword, setNewPassword] = useState("");
-    const [confirmPassword, setConfirmPassword] = useState("");
+    const token = useMemo(() => sp.get("token") || "", [sp]);
 
-    const [showPassword, setShowPassword] = useState(false);
+    const [password, setPassword] = useState("");
+    const [password2, setPassword2] = useState("");
+    const [show, setShow] = useState(false);
 
     const [ok, setOk] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
-    const passwordHint = useMemo(() => {
-        return "Мін. 8 символів, великі+малі літери, цифра і спецсимвол";
-    }, []);
-
-    function validate(): string | null {
-        if (!token.trim()) return "Немає токена.";
-        if (newPassword.length < 8) return passwordHint;
-        if (!/[a-z]/.test(newPassword)) return passwordHint;
-        if (!/[A-Z]/.test(newPassword)) return passwordHint;
-        if (!/\d/.test(newPassword)) return passwordHint;
-        if (!/[^A-Za-z0-9]/.test(newPassword)) return passwordHint;
-        if (newPassword !== confirmPassword) return "Паролі не співпадають.";
-        return null;
-    }
-
-    async function onSubmit(e: React.FormEvent) {
-        e.preventDefault();
+    async function submit() {
         setError(null);
-        setOk(false);
 
-        const v = validate();
-        if (v) {
-            setError(v);
+        if (!token) {
+            setError("Немає токена. Відкрийте посилання з листа ще раз.");
+            return;
+        }
+
+        const e = validatePassword(password);
+        if (e) {
+            setError(e);
+            return;
+        }
+
+        if (password !== password2) {
+            setError("Паролі не співпадають.");
             return;
         }
 
         setLoading(true);
         try {
-            await apiPost<{ ok: boolean }>("/auth/password-reset/confirm", {
+            await apiPost("/auth/password-reset/confirm", {
                 token,
-                newPassword,
-                confirmPassword,
+                newPassword: password,
+                confirmPassword: password2,
             });
             setOk(true);
-        } catch (err) {
-            setError(String(err));
+            setTimeout(() => navigate("/login"), 800);
+        } catch (e: any) {
+            setError(e?.message || "Не вдалося змінити пароль.");
         } finally {
             setLoading(false);
         }
     }
 
     return (
-        <div style={{ padding: 16, maxWidth: 420, margin: "0 auto" }}>
-            <h2>Скидання пароля</h2>
+        <div style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
+            <h2 style={{ marginTop: 0 }}>Новий пароль</h2>
 
-            <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
-                <label>
-                    Токен
-                    <input value={token} onChange={(e) => setToken(e.target.value)} style={{ width: "100%" }} />
-                </label>
-
-                <label>
-                    Новий пароль
-                    <div style={{ display: "flex", gap: 8 }}>
-                        <input
-                            type={showPassword ? "text" : "password"}
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            style={{ width: "100%" }}
-                            placeholder="Наприклад: Qq!23456"
-                        />
-                        <button type="button" onClick={() => setShowPassword((s) => !s)}>
-                            {showPassword ? "Сховати" : "Показати"}
-                        </button>
+            {ok ? (
+                <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+                    <b>Пароль успішно змінено ✅</b>
+                    <div style={{ opacity: 0.85, marginTop: 6 }}>Зараз перекинемо на сторінку входу…</div>
+                    <div style={{ marginTop: 10 }}>
+                        <Link to="/login">Перейти до входу</Link>
                     </div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>{passwordHint}</div>
-                </label>
+                </div>
+            ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                    {error && <div style={{ color: "crimson" }}>{error}</div>}
 
-                <label>
-                    Повторити пароль
-                    <input
-                        type={showPassword ? "text" : "password"}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        style={{ width: "100%" }}
-                    />
-                </label>
+                    <label>
+                        Новий пароль
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <input
+                                type={show ? "text" : "password"}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                style={{ width: "100%" }}
+                            />
+                            <button type="button" onClick={() => setShow((v) => !v)} style={{ whiteSpace: "nowrap" }}>
+                                {show ? "Сховати" : "Показати"}
+                            </button>
+                        </div>
+                    </label>
 
-                <button type="submit" disabled={loading}>
-                    {loading ? "Зберігаємо..." : "Змінити пароль"}
-                </button>
+                    <label>
+                        Повторіть пароль
+                        <input
+                            type={show ? "text" : "password"}
+                            value={password2}
+                            onChange={(e) => setPassword2(e.target.value)}
+                            style={{ width: "100%" }}
+                        />
+                    </label>
 
-                {ok && <div style={{ color: "green" }}>Пароль змінено. Тепер можете увійти.</div>}
-                {error && <div style={{ color: "crimson" }}>{error}</div>}
-            </form>
+                    <div style={{ opacity: 0.75, fontSize: 13 }}>
+                        Вимоги: мін. 8 символів, великі+малі літери та цифра.
+                    </div>
 
-            <p style={{ marginTop: 12 }}>
-                <Link to="/login">Перейти до входу</Link>
-            </p>
+                    <button onClick={submit} disabled={loading}>
+                        {loading ? "Зберігаємо…" : "Змінити пароль"}
+                    </button>
+
+                    <Link to="/login" style={{ fontSize: 14 }}>
+                        Повернутися до входу
+                    </Link>
+                </div>
+            )}
         </div>
     );
 }

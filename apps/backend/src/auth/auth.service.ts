@@ -16,6 +16,7 @@ import {
     PasswordResetRequestDto,
     PasswordResetConfirmDto,
 } from "./dto";
+import { MailService } from "../mail/mail.service";
 
 @Injectable()
 export class AuthService {
@@ -24,6 +25,7 @@ export class AuthService {
     constructor(
         private prisma: PrismaService,
         private jwt: JwtService,
+        private mail: MailService,
     ) {
         this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     }
@@ -173,7 +175,7 @@ export class AuthService {
 
         const user = await this.prisma.user.findUnique({ where: { email } });
 
-        // важливо: не палимо чи існує email
+        // ВАЖЛИВО: не палимо, чи існує email
         if (!user) return { ok: true };
 
         const rawToken = randomBytes(32).toString("hex");
@@ -189,11 +191,11 @@ export class AuthService {
             },
         });
 
-        // DEV-режим: повертаємо токен, щоб ви могли перевіряти без пошти.
-        // В проді це треба відправляти email’ом.
-        if (process.env.NODE_ENV !== "production") {
-            return { ok: true, devToken: rawToken };
-        }
+        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+        const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+        // реально відправляємо лист
+        await this.mail.sendPasswordResetEmail(email, resetUrl);
 
         return { ok: true };
     }

@@ -1,70 +1,83 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { apiPost } from "../api";
+import { Link } from "react-router-dom";
 
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("");
-    const [result, setResult] = useState<string | null>(null);
-    const [devToken, setDevToken] = useState<string | null>(null);
+    const [sent, setSent] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
-    async function onSubmit(e: React.FormEvent) {
-        e.preventDefault();
+    async function submit() {
         setError(null);
-        setResult(null);
-        setDevToken(null);
 
-        if (!email.trim() || !email.includes("@")) {
-            setError("Введіть коректну електронну пошту.");
+        const v = email.trim();
+        if (!v) {
+            setError("Введіть електронну пошту.");
+            return;
+        }
+        // мінімальна перевірка email
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+            setError("Некоректна електронна пошта.");
             return;
         }
 
         setLoading(true);
         try {
-            const res = await apiPost<{ ok: boolean; devToken?: string }>("/auth/password-reset/request", { email });
-            setResult("Якщо ця пошта існує — ми надіслали інструкції для відновлення.");
-            if (res.devToken) setDevToken(res.devToken);
-        } catch (err) {
-            setError(String(err));
+            await apiPost("/auth/password-reset/request", { email: v });
+            setSent(true);
+        } catch (e: any) {
+            setError(e?.message || "Не вдалося відправити запит.");
         } finally {
             setLoading(false);
         }
     }
 
     return (
-        <div style={{ padding: 16, maxWidth: 420, margin: "0 auto" }}>
-            <h2>Відновлення пароля</h2>
+        <div style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
+            <h2 style={{ marginTop: 0 }}>Відновлення пароля</h2>
 
-            <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
-                <label>
-                    Електронна пошта
-                    <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: "100%" }} />
-                </label>
-
-                <button type="submit" disabled={loading}>
-                    {loading ? "Надсилаємо..." : "Надіслати"}
-                </button>
-
-                {result && <div style={{ color: "green" }}>{result}</div>}
-                {error && <div style={{ color: "crimson" }}>{error}</div>}
-
-                {devToken && (
-                    <div style={{ padding: 10, border: "1px solid #ddd", borderRadius: 8 }}>
-                        <div style={{ marginBottom: 6 }}>
-                            <b>DEV token</b> (для тесту без пошти):
-                        </div>
-                        <div style={{ wordBreak: "break-all" }}>{devToken}</div>
-                        <div style={{ marginTop: 8 }}>
-                            Перейдіть: <Link to={`/reset-password?token=${devToken}`}>Скинути пароль</Link>
-                        </div>
+            {sent ? (
+                <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                        Якщо ця пошта існує — ми надіслали інструкції для відновлення.
                     </div>
-                )}
-            </form>
+                    <div style={{ opacity: 0.85, fontSize: 14 }}>
+                        Перевірте <b>Вхідні</b>, <b>Промоакції</b> або <b>Спам</b>.
+                        Лист може прийти протягом 1–2 хвилин.
+                    </div>
 
-            <p style={{ marginTop: 12 }}>
-                <Link to="/login">Назад до входу</Link>
-            </p>
+                    <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <button onClick={() => setSent(false)}>Надіслати ще раз</button>
+                        <Link to="/login" style={{ alignSelf: "center" }}>
+                            Повернутися до входу
+                        </Link>
+                    </div>
+                </div>
+            ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                    {error && <div style={{ color: "crimson" }}>{error}</div>}
+
+                    <label>
+                        Електронна пошта
+                        <input
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="name@example.com"
+                            style={{ width: "100%" }}
+                        />
+                    </label>
+
+                    <button onClick={submit} disabled={loading}>
+                        {loading ? "Надсилаємо…" : "Надіслати інструкції"}
+                    </button>
+
+                    <div style={{ opacity: 0.75, fontSize: 13 }}>
+                        Ми завжди показуємо одне й те саме повідомлення, щоб не підказувати,
+                        чи є пошта в системі.
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
