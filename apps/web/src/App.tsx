@@ -7,6 +7,8 @@ import ProtectedRoute from "./ProtectedRoute";
 import PublicTripsPage from "./pages/PublicTripsPage";
 import ProfilePage from "./pages/ProfilePage.tsx";
 import NotificationsPage from "./pages/NotificationsPage.tsx";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 export default function App() {
     return (
@@ -14,6 +16,8 @@ export default function App() {
             <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
 
                 <Route path="/" element={<ProtectedRoute><TripsPage /></ProtectedRoute>} />
                 <Route path="/public" element={<ProtectedRoute><PublicTripsPage /></ProtectedRoute>} />
