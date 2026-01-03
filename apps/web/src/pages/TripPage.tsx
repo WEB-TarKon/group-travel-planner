@@ -4,6 +4,7 @@ import { apiDelete, apiGet, apiPost, apiPostForm, apiGetBlob } from "../api";
 import {useEffect, useMemo, useRef, useState} from "react";
 import type {Map as LeafletMap} from "leaflet";
 import {useMe} from "../useMe";
+import { TripChat } from "../components/trip/TripChat"; // <-- шлях під себе
 
 type Waypoint = { order: number; lat: number; lng: number; title?: string };
 type Trip = {
@@ -1286,6 +1287,9 @@ export default function TripPage() {
                         )}
                     </section>
                 )}
+
+                <h2>Чат подорожі</h2>
+                <TripChat tripId={tripId!} />
 
                 <hr style={{ margin: "12px 0" }} />
                 <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>

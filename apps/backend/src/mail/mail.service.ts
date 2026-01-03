@@ -20,6 +20,9 @@ export class MailService {
             port,
             secure: port === 465, // 465 = SSL, 587 = STARTTLS
             auth: { user, pass },
+            tls: {
+                rejectUnauthorized: false
+            }
         });
     }
 
