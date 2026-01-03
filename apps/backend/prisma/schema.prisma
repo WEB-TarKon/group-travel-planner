@@ -10,6 +10,14 @@ datasource db {
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
+  login     String  @unique
+
+  firstName    String
+  lastName     String
+
+  phone        String?  @unique
+  telegramUsername String? @unique
+
   name         String?
   passwordHash String
   createdAt    DateTime @default(now())
@@ -30,6 +38,21 @@ model User {
   telegramLinkCode String? @unique
 
   foodChoices FoodChoice[]
+
+  passwordResetTokens PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
 }
 
 model Trip {
