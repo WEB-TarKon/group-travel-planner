@@ -7,12 +7,13 @@ import { AuthController } from './auth.controller';
 import { PrismaService } from '../prisma.service';
 import { StringValue } from 'ms';
 import {JwtGuard} from "./jwt.guard";
+import {MailModule} from "../mail/mail.module";
 
 @Module({
   imports: [
     ConfigModule.forFeature(jwtConfig),
     JwtModule.registerAsync({
-      imports: [ConfigModule],
+      imports: [ConfigModule, MailModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const jwt = configService.get<{
@@ -28,6 +29,7 @@ import {JwtGuard} from "./jwt.guard";
         };
       },
     }),
+    MailModule
   ],
   providers: [AuthService, PrismaService, JwtGuard],
   controllers: [AuthController],

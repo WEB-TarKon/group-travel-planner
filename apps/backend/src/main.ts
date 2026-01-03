@@ -21,6 +21,9 @@ async function bootstrap() {
 
   app.useStaticAssets(join(__dirname, "..", "uploads"), { prefix: "/uploads" });
 
+  const mail = app.get(require("./mail/mail.service").MailService);
+  await mail.verify();
+
   await app.listen(3000);
 }
 bootstrap();
